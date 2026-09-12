@@ -4,9 +4,11 @@ import pickle
 import requests
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from numbers import Integral
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+from threading import Lock
 
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -26,61 +28,76 @@ from rag.query_expansion import expand_query
 
 logger = logging.getLogger(__name__)
 
-model = SentenceTransformer(EMBEDDING_MODEL)
+model = None
+_model_lock = Lock()
 
 # Global variables for index and chunks
 index = None
 chunks = []
+# Serialize readiness and retain the lock through fallback on a failed repair.
+_retrieval_lock = Lock()
 
 
-def _ensure_index_exists():
-    """Ensure FAISS index exists, build it if it doesn't."""
-    global index, chunks
-    
-    # Resolve paths relative to src directory
-    src_dir = Path(__file__).parent.parent
-    index_path = src_dir / FAISS_INDEX_PATH
-    chunks_path = src_dir / CHUNKS_PATH
-    
-    # Check if index exists
-    if index_path.exists() and chunks_path.exists():
-        try:
-            index = faiss.read_index(str(index_path))
-            with open(chunks_path, "rb") as f:
-                chunks = pickle.load(f)
-            return True
-        except Exception as e:
-            print(f"⚠️  Warning: Error loading existing index: {e}")
-            print("Rebuilding index...")
-    
-    # Index doesn't exist or failed to load, build it
-    print("📦 Index not found. Building index from documents...")
+def _get_model():
+    """Construct the query model once, allowing retries after a failed attempt."""
+    global model
+    if model is None:
+        with _model_lock:
+            if model is None:
+                model = SentenceTransformer(EMBEDDING_MODEL)
+    return model
+
+
+def _ensure_chunks_loaded(*, reload=False):
+    """Load the shared ID mapping without depending on FAISS or a model."""
+    global chunks
+    if chunks and not reload:
+        return True
     try:
-        from rag.build_index import build_index
-        build_index()
-        
-        # Load the newly created index
-        if index_path.exists() and chunks_path.exists():
-            index = faiss.read_index(str(index_path))
-            with open(chunks_path, "rb") as f:
-                chunks = pickle.load(f)
-            print("✅ Index built and loaded successfully")
-            return True
-        else:
-            print("❌ Failed to build index. No documents found or error occurred.")
-            from config import DOCUMENTS_DIR
-            docs_path = src_dir / DOCUMENTS_DIR
-            print(f"   Check that documents exist in: {docs_path}")
-            return False
-    except Exception as e:
-        print(f"❌ Error building index: {e}")
-        import traceback
-        traceback.print_exc()
+        with (Path(__file__).parent.parent / CHUNKS_PATH).open("rb") as file:
+            chunks = pickle.load(file)
+        return True
+    except Exception as exc:
+        if reload:
+            # A successful rebuild may have published new FTS IDs. Never map
+            # them through cached chunks if the new pickle cannot be loaded.
+            chunks = []
+        logger.warning("Chunk loading failed: %s", exc)
         return False
 
 
-# Initialize index on module load
-_ensure_index_exists()
+def _ensure_index_exists():
+    """Prepare shared artifacts before searches; preserve chunks on vector failure."""
+    global index
+    chunks_ready = _ensure_chunks_loaded()
+    if chunks_ready and index is not None:
+        return True
+
+    index_path = Path(__file__).parent.parent / FAISS_INDEX_PATH
+    index = None
+    if chunks_ready:
+        try:
+            index = faiss.read_index(str(index_path))
+            return True
+        except Exception as exc:
+            logger.warning("Vector index loading failed; attempting rebuild: %s", exc)
+
+    try:
+        from rag.build_index import build_index
+        build_index()
+    except Exception as exc:
+        logger.warning("Vector index rebuild failed: %s", exc)
+        return False
+
+    # Rebuilding can change every position: reload chunks even if FAISS fails.
+    if not _ensure_chunks_loaded(reload=True):
+        return False
+    try:
+        index = faiss.read_index(str(index_path))
+        return True
+    except Exception as exc:
+        logger.warning("Vector index loading after rebuild failed: %s", exc)
+        return False
 
 
 def _valid_candidate_ids(candidates) -> list[int]:
@@ -100,11 +117,7 @@ def _vector_search_ids(query: str, limit: int) -> list[int]:
     """Search the original query with the existing normalized FAISS algorithm."""
     if limit <= 0:
         return []
-    # Ensure index exists before retrieving
-    if index is None or len(chunks) == 0:
-        if not _ensure_index_exists():
-            return []
-    
+    # Artifact readiness belongs to the caller, never to a parallel search.
     if index is None or len(chunks) == 0:
         return []
     
@@ -112,7 +125,7 @@ def _vector_search_ids(query: str, limit: int) -> list[int]:
     if candidate_count <= 0:
         return []
 
-    q_emb = model.encode([query])
+    q_emb = _get_model().encode([query])
     faiss.normalize_L2(q_emb)
 
     scores, ids = index.search(q_emb, candidate_count)
@@ -121,7 +134,11 @@ def _vector_search_ids(query: str, limit: int) -> list[int]:
 
 def retrieve_vector(query: str, limit=None) -> list[dict]:
     """Retrieve vector-only contexts, including for frozen benchmark reproduction."""
-    ids = _vector_search_ids(query, TOP_K if limit is None else limit)
+    limit = TOP_K if limit is None else limit
+    with _retrieval_lock:
+        if limit > 0 and not _ensure_index_exists():
+            return []
+    ids = _vector_search_ids(query, limit)
     return [chunks[position] for position in ids]
 
 
@@ -133,19 +150,30 @@ def retrieve(query: str) -> list[dict]:
         logger.warning("Query expansion failed; using the original query: %s", exc)
         lexical_inputs = [query]
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        vector_future = executor.submit(_vector_search_ids, query, VECTOR_CANDIDATES)
-        fts_future = executor.submit(search_fts, lexical_inputs, limit=FTS_CANDIDATES)
-        rankings = []
-        for name, future in (("Vector", vector_future), ("FTS", fts_future)):
-            try:
-                rankings.append(_valid_candidate_ids(future.result()))
-            except Exception as exc:
-                logger.warning("%s retrieval failed: %s", name, exc)
-                rankings.append([])
+    with ExitStack() as readiness:
+        readiness.enter_context(_retrieval_lock)
+        vector_ready = _ensure_index_exists()
+        if not chunks:
+            return []
+        if vector_ready:
+            # Loaded artifacts are reused by subsequent healthy requests.
+            readiness.close()
+        # Otherwise, prevent another repair from replacing FTS/chunks until
+        # this fallback request finishes searching and mapping its results.
 
-    fused_ids = reciprocal_rank_fusion(rankings, limit=TOP_K)
-    return [chunks[position] for position in fused_ids]
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            vector_future = executor.submit(_vector_search_ids, query, VECTOR_CANDIDATES)
+            fts_future = executor.submit(search_fts, lexical_inputs, limit=FTS_CANDIDATES)
+            rankings = []
+            for name, future in (("Vector", vector_future), ("FTS", fts_future)):
+                try:
+                    rankings.append(_valid_candidate_ids(future.result()))
+                except Exception as exc:
+                    logger.warning("%s retrieval failed: %s", name, exc)
+                    rankings.append([])
+
+        fused_ids = reciprocal_rank_fusion(rankings, limit=TOP_K)
+        return [chunks[position] for position in fused_ids]
 
 
 def build_prompt(query, contexts):

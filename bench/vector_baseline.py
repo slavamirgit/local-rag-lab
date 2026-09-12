@@ -121,6 +121,9 @@ def main():
 
     from rag import query
 
+    if not query._ensure_index_exists():
+        raise ValueError("The rebuilt vector index could not be loaded")
+
     def source_name(source):
         return Path(source).resolve().relative_to(ROOT).as_posix()
 
