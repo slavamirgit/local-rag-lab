@@ -1,0 +1,2 @@
+Recovery batch operating procedure
+Run rivetctl recover --apply --only-pending to submit messages that have never received an upstream acknowledgement. Confirm approval and the tenant boundary before scheduling the batch. Messages already accepted upstream are excluded even if the local journal is incomplete. Record the batch identifier in the incident ticket. Do not combine this flag with other message-state selectors.

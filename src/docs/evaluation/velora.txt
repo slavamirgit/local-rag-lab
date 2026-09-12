@@ -1,0 +1,2 @@
+Velora receipt delivery
+Velora is the internal service that delivers purchase receipts by email. It accepts a completed order identifier and resolves the customer's preferred language. Undelivered receipts are retried for twenty-four hours, then sent to a review queue. The Commerce Operations team owns Velora. It does not create invoices or issue refunds.

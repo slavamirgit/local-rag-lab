@@ -1,0 +1,2 @@
+Queue recovery notice
+The queue worker stops dispatching and reports QW_E17_A2. Its heartbeat timestamp is ahead of the coordinator because the host clock drifted. Synchronize the host clock, then reconnect the worker. Preserve pending messages and record the worker generation in the incident. Increasing the ownership lease duration will not correct this condition.

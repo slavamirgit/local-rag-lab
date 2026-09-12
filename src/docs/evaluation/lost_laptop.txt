@@ -1,0 +1,2 @@
+Lost company laptop procedure
+Report a missing company laptop to the security desk immediately, even if it may only be misplaced. Security revokes the device session tokens and queues a remote lock. Include the asset tag and last known location in the report. Do not wait for a police report before notifying the company. Workplace Services arranges a replacement device.

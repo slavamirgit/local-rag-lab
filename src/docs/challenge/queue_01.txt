@@ -1,0 +1,2 @@
+Queue recovery notice
+The queue worker stops dispatching and reports QW_E17_A1. Its ownership lease expired while a job was running. Stop the worker and allow the scheduler to assign a new owner before restarting it. Preserve pending messages and record the worker generation in the incident. Do not extend the expired lease by editing stored metadata.

@@ -1,0 +1,2 @@
+Outbound connector retry budget
+The connector-retry.toml file controls retries for outbound partner requests. Set max_attempts to the total number of attempts, including the original request. The default is four. Use exponential backoff for temporary network errors, but do not retry rejected credentials. A connector restart loads changes. This configuration does not control email receipt delivery.

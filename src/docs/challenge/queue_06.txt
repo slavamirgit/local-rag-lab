@@ -1,0 +1,2 @@
+Queue recovery notice
+The queue worker stops dispatching and reports QW_E17_D2. Its tenant has exhausted dispatch credits for the current interval. Wait for the next credit refill before resuming dispatch. Preserve pending messages and record the worker generation in the incident. Restarting the worker or renewing its ownership lease does not replenish the tenant's credits.

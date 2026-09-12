@@ -1,0 +1,2 @@
+Relay service change procedure
+Aster-Relay-R receives mirrored order submissions and compares their response shape with the approved contract. Changes require Routing Operations review and a staging check before rollout. It reads copies from the mirror topic and must never publish customer charges. If comparisons stop arriving, inspect its topic subscription. Record the service revision in the deployment ticket and retain the previous revision for rollback.

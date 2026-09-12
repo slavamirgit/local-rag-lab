@@ -1,0 +1,2 @@
+Queue recovery notice
+The queue worker stops dispatching and reports QW_E17_C1. The assigned ownership lease belongs to a different shard from the job's partition. Release the incorrect assignment and request an owner from the matching shard. Preserve pending messages and record the worker generation in the incident. Repeatedly restarting the same assignment will not move it to the correct partition.

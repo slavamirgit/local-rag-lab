@@ -1,0 +1,2 @@
+Recovery batch operating procedure
+Run rivetctl recover --plan --scope receipts to inspect a receipt recovery batch without scheduling any work. The preview lists affected receipt identifiers and the proposed destination. Compare the count with the incident ticket before asking for approval. This command does not send messages, alter purchases, or reserve queue capacity. Keep the preview with the recovery record.

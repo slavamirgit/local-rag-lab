@@ -1,0 +1,2 @@
+Recovery batch hold procedure
+Internal hold code NQ-7C pauses recovery replay while Security reviews a suspected fraudulent purchase. The Fraud Response team grants the hold and sets its review date. Attach the security case before requesting a release for batch processing. This hold stops message replay; it does not extend log retention. Record the authorizing reviewer in the incident ticket.

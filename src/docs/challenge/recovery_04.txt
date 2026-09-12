@@ -1,0 +1,2 @@
+Recovery batch operating procedure
+Run rivetctl recover --apply --only-accepted to reconcile messages accepted upstream whose local journal entry is missing. Confirm approval and the tenant boundary before scheduling the batch. This operation copies upstream receipts into the journal without resending purchase requests. Record the batch identifier in the incident ticket. Do not combine this flag with other message-state selectors.

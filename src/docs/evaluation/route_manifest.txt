@@ -1,0 +1,2 @@
+Gateway route manifest
+The file gateway-routes.v3.yaml maps public API paths to internal services. Each route declares an upstream, a timeout, and an owning team. Route changes require a gateway maintainer's review and a staging smoke test. This file contains no credentials. Deployments read the manifest once at startup, so changing it requires a gateway rollout.

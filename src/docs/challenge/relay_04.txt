@@ -1,0 +1,2 @@
+Relay service change procedure
+Aster-Relay-S sends mirrored order submissions to the comparison topic after removing payment tokens. Changes require Routing Operations review and a staging check before rollout. It publishes copies but does not compare responses. If copies stop appearing, inspect its publisher permission. Record the service revision in the deployment ticket and retain the previous revision for rollback.

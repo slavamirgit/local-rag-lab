@@ -242,3 +242,12 @@ python-rag/
 
 /**.md
 /**.txt
+
+# Frozen retrieval evaluation inputs and measured baseline only
+!/src/docs/evaluation/*.txt
+!/bench/queries.json
+!/bench/results/vector-baseline.json
+!/bench/README.md
+!/src/docs/challenge/*.txt
+!/bench/challenge_queries.json
+!/bench/results/vector-challenge-baseline.json

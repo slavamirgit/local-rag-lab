@@ -1,0 +1,2 @@
+Temporary production access
+Engineers who need elevated production permissions request a time-limited role through the access portal. The request must identify an incident or maintenance ticket and receive approval from the on-call lead. Access expires after two hours. Permanent administrator grants are not issued for troubleshooting. The access log records the approver and all role activations.

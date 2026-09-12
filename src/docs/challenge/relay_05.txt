@@ -1,0 +1,2 @@
+Relay retry change procedure
+The configuration key retry_ack_ms sets how long one outbound order attempt waits for an acknowledgement before retrying. Changes require Routing Operations review and a staging check before rollout. The value is in milliseconds and starts again for each attempt. It does not cap the total duration of a batch. Record the configuration revision in the deployment ticket and retain the previous revision for rollback.

@@ -1,0 +1,2 @@
+Relay resource change procedure
+The resource routes/v3c exports approved routing changes as a release bundle for operators. Changes require Routing Operations review and a staging check before rollout. Downloading the bundle does not activate the approved routes. Apply the bundle during the agreed release window. Record the resource revision in the deployment ticket and retain the previous revision for rollback.

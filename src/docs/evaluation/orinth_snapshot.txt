@@ -1,0 +1,2 @@
+Orinth analytics snapshots
+Orinth builds a daily read-only snapshot of order analytics at 03:00 UTC. Reports can appear stale while the snapshot is being replaced. If freshness exceeds twenty-six hours, contact Data Reliability and include the snapshot generation number. Application restarts do not refresh Orinth. Historical snapshots are retained for fourteen days for comparison.

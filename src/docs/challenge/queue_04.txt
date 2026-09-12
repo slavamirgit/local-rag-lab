@@ -1,0 +1,2 @@
+Queue recovery notice
+The queue worker stops dispatching and reports QW_E17_B5. The holding area for rejected messages has reached its storage limit. Ask Messaging Operations to increase that area's quota, then resume dispatch. Preserve pending messages and record the worker generation in the incident. Deleting rejected payloads to make room is prohibited until their owners approve disposal.

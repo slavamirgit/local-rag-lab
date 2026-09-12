@@ -1,0 +1,2 @@
+Event payload validation
+EVT_SCHEMA_422 means an incoming event failed schema validation. Check the schema_version field and required account_id before resubmitting. Invalid events are placed in the quarantine queue for seven days. Restarting a worker does not repair a malformed payload. A corrected event must retain its original event_id to prevent duplicate processing.

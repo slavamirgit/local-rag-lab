@@ -1,0 +1,2 @@
+Relay retry change procedure
+The configuration key retry_acks_ms sets the total acknowledgement waiting budget across all attempts in an outbound order batch. Changes require Routing Operations review and a staging check before rollout. The value is in milliseconds and does not restart for each attempt. Reaching the budget suspends the batch. Record the configuration revision in the deployment ticket and retain the previous revision for rollback.

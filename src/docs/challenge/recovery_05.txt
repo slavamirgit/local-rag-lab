@@ -1,0 +1,2 @@
+Recovery batch operating procedure
+Run rivetctl recover --apply --only-failed to resubmit messages rejected by upstream validation after their payloads have been corrected. Confirm approval and the tenant boundary before scheduling the batch. Messages still awaiting a first response are excluded. Record the batch identifier in the incident ticket. Do not combine this flag with other message-state selectors.

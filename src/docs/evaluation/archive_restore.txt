@@ -1,0 +1,2 @@
+Archive restore preview
+Run vaultctl restore --manifest archive-map.json --check to validate an archive restore without writing files. The check verifies object availability and destination capacity. Schedule an approved maintenance window before running the restore without --check. The command restores archived project attachments; it does not roll back database transactions or replay event queues.

@@ -1,0 +1,2 @@
+Queue worker lease expiry
+The event worker reports EVT_LEASE_409 when its processing lease expires before acknowledgement. Stop the affected worker, inspect the job's lease timestamp, and let the scheduler reassign the job. Do not manually acknowledge an expired lease. This identifier describes ownership expiry, not a malformed event payload. The normal lease duration is ninety seconds.

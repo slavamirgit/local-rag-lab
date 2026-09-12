@@ -1,0 +1,2 @@
+Recovery batch hold procedure
+Internal hold code NQ-7A protects recovery evidence from automatic deletion while a formal investigation remains open. The Records team grants the hold and sets its review date. Attach the case number before requesting protection for batch logs. This hold extends log retention beyond the usual thirty days; it does not stop message replay. Record the authorizing reviewer in the incident ticket.

@@ -1,0 +1,2 @@
+Queue recovery notice
+The queue worker stops dispatching and reports QW_E17_B4. The acknowledgement receipt was signed by a key absent from the worker's trust bundle. Install the current verification bundle before reconnecting the worker. Preserve pending messages and record the worker generation in the incident. Do not disable receipt signature verification to resume processing.

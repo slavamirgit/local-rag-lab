@@ -1,0 +1,2 @@
+Relay resource change procedure
+The resource routes/v3b exports proposed routing changes as an audit report for reviewers. Changes require Routing Operations review and a staging check before rollout. Downloading the report does not activate the proposed routes. Attach the report to the approval ticket before requesting release. Record the resource revision in the deployment ticket and retain the previous revision for rollback.

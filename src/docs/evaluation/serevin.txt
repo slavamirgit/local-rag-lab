@@ -1,0 +1,2 @@
+Serevin sandbox accounts
+Serevin provisions isolated customer demonstration accounts. A sandbox expires after seventy-two hours unless its owner renews it in the demo portal. Renewal adds another seventy-two hours and preserves the sample records. Only synthetic customer data may be loaded. The Developer Experience team owns Serevin; production account recovery goes through Support instead.

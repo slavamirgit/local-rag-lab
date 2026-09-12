@@ -1,0 +1,17 @@
+[
+  {"id": "lex-01", "category": "exact_lexical", "query": "EVT_LEASE_409", "expected_source": "src/docs/evaluation/queue_lease.txt"},
+  {"id": "lex-02", "category": "exact_lexical", "query": "EVT_SCHEMA_422", "expected_source": "src/docs/evaluation/payload_validation.txt"},
+  {"id": "lex-03", "category": "exact_lexical", "query": "gateway-routes.v3.yaml", "expected_source": "src/docs/evaluation/route_manifest.txt"},
+  {"id": "lex-04", "category": "exact_lexical", "query": "rivetctl replay --queue quarantine --dry-run", "expected_source": "src/docs/evaluation/replay_command.txt"},
+  {"id": "lex-05", "category": "exact_lexical", "query": "Velora", "expected_source": "src/docs/evaluation/velora.txt"},
+  {"id": "sem-01", "category": "semantic", "query": "How much can I get back for food when I stay away overnight for work?", "expected_source": "src/docs/evaluation/travel_meals.txt"},
+  {"id": "sem-02", "category": "semantic", "query": "I need extra privileges to investigate a live incident. Who approves them and when do they end?", "expected_source": "src/docs/evaluation/temporary_access.txt"},
+  {"id": "sem-03", "category": "semantic", "query": "My work computer has disappeared. Should I tell someone now or wait until I have contacted the police?", "expected_source": "src/docs/evaluation/lost_laptop.txt"},
+  {"id": "sem-04", "category": "semantic", "query": "Who helps a recent recruit find their way around during the first month?", "expected_source": "src/docs/evaluation/new_hire_partner.txt"},
+  {"id": "sem-05", "category": "semantic", "query": "How long can we keep a video of an internal discussion, and can it be saved for teaching?", "expected_source": "src/docs/evaluation/meeting_recordings.txt"},
+  {"id": "mix-01", "category": "mixed", "query": "Orinth reports still show yesterday's numbers. When should I escalate the delay?", "expected_source": "src/docs/evaluation/orinth_snapshot.txt"},
+  {"id": "mix-02", "category": "mixed", "query": "In connector-retry.toml, does max_attempts count the first request?", "expected_source": "src/docs/evaluation/retry_budget.txt"},
+  {"id": "mix-03", "category": "mixed", "query": "How can I use vaultctl restore to verify that archived attachments can be recovered without changing files?", "expected_source": "src/docs/evaluation/archive_restore.txt"},
+  {"id": "mix-04", "category": "mixed", "query": "An export deletion returns ARC_PIN_208. Who can allow it to be removed?", "expected_source": "src/docs/evaluation/export_pin.txt"},
+  {"id": "mix-05", "category": "mixed", "query": "Can I keep a Serevin demonstration account alive longer without losing its example data?", "expected_source": "src/docs/evaluation/serevin.txt"}
+]

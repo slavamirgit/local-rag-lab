@@ -1,0 +1,2 @@
+Relay routing change procedure
+The manifest relay-routes.v2b.yaml selects the comparison upstream for mirrored order submissions. Changes require Routing Operations review and a staging check before rollout. Comparison responses are discarded and must not affect real purchases. Confirm the mirror cannot charge customers before applying it. Record the manifest revision in the deployment ticket and retain the previous revision for rollback.

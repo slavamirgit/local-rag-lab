@@ -1,0 +1,2 @@
+Queue recovery notice
+The queue worker stops dispatching and reports QW_E17_D3. The coordinator rejected a stale fencing generation after a leadership change. Fetch the current coordinator generation and register the worker again. Preserve pending messages and record the worker generation in the incident. Purging queued jobs or increasing tenant dispatch credits will not repair stale fencing metadata.

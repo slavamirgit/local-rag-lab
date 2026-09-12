@@ -1,0 +1,2 @@
+Export retention pin
+ARC_PIN_208 indicates that a compliance retention pin prevents deletion of a generated export. Wait for the pin expiry or request a release from the Records team with the export identifier and business justification. Repeating the delete request cannot bypass a pin. Ordinary unpinned exports expire after ten days. This status is unrelated to archive restore capacity.

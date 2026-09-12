@@ -1,0 +1,496 @@
+{
+  "metadata": {
+    "measured_at_utc": "2026-09-12T06:54:48.908232+00:00",
+    "retrieval_mode": "vector_only",
+    "dataset": "challenge",
+    "corpus_path": "src/docs/challenge",
+    "queries_path": "bench/challenge_queries.json",
+    "freeze_manifest_sha256": {
+      "bench/challenge-inputs.sha256": "68933c97f32bba0df25b9631850bb8569b08cda07cf01deb2443f6005b5b2db1"
+    },
+    "retrieval_entrypoint": "rag.query.retrieve",
+    "git_revision": "dcc157c189ce8b1bb5b11b3d8142019d041e43f6",
+    "implementation_sha256": {
+      "src/config.py": "10a92cf7f8909dca8c252d6157ee15b9480c61c4c482b6c96b7d63c839c81cba",
+      "src/rag/__init__.py": "64db7ccd96cc8448dd1962f416ebee8b2cce282172f800a6dfde2c76f2e5a266",
+      "src/rag/build_index.py": "17d3e745e7c0b2800e1bae9ac8b07a90bd203355a8596160d18c96e740c1116b",
+      "src/rag/chunk.py": "ffa0caeea8f4a13bc1a9dfe1e17b73bcc72f75c2d9f458b3d2e98ce7e3ea3ecd",
+      "src/rag/embed.py": "c371662356bfd62e4621b47fe5ac89a0fa5fa23bc820a325d5fb03d918dff6fe",
+      "src/rag/ingest.py": "d734bf897b4f66419fe31dc2eb7157291605df8f44a87009ef5bcf5a6df048f2",
+      "src/rag/query.py": "a190f61a38225b41c49f913de7abae891c2fef4d51acee1e92f3b04d0d42ec87",
+      "bench/vector_baseline.py": "2e1466dade2b784f4c77e6caf809957aaa09918b714e8165fe64b363215d1963"
+    },
+    "dataset_sha256": "5a61e2d50117f5a723c7f0a53e4ad83f6637a20b13adad23e28598ab4b56533e",
+    "input_sha256": {
+      "src/docs/challenge/queue_01.txt": "ddb16aee712f36f3c6622dcc515a913bc0635e6e3804c4d4acb37341c8d7d074",
+      "src/docs/challenge/queue_02.txt": "c44b6363c0f21ed9816bdd9600d73de8e97feb5886af857abeeb2ab6f02335d2",
+      "src/docs/challenge/queue_03.txt": "6f659b93779863907083814f0c3edcc63527f4cfcfb33ac210e989cec482c431",
+      "src/docs/challenge/queue_04.txt": "3433b0d2714399066f6e602747ae39d8ce2500c86beccefed41c50c949816981",
+      "src/docs/challenge/queue_05.txt": "b15ebc62d60133955815df151c01ff3648498fdadacc7d93662480ff4b66c21e",
+      "src/docs/challenge/queue_06.txt": "79e7823a48e18fed95e2cfab16c5116db174cd6fe56c975e4a0ccfbe5b198d74",
+      "src/docs/challenge/queue_07.txt": "5c8f75f5d0708e4361b443c20555c981e0d21fe04c3f021be8b551458acfcdb6",
+      "src/docs/challenge/queue_08.txt": "e4c314d99fc61785d06ed6bbd4323f42e2c92a75f4d70a5d74ac37d3b9fbf865",
+      "src/docs/challenge/recovery_01.txt": "537b3debbb0018f5da379a6d1f2da57d5c4e284a81a5d4760ae56ce8df6248ea",
+      "src/docs/challenge/recovery_02.txt": "bc9edda2458257e9ecb505932d3c9445a6298124defd26d4ab70c3c8875df99d",
+      "src/docs/challenge/recovery_03.txt": "3b9cebd124b0c4def6b3c709d9321d6c64880011b7722c7d8b66e0ab4c1579cd",
+      "src/docs/challenge/recovery_04.txt": "e45430c7f013ad0788ff4b12abf40f0cfde61a25af5673bab3ad3e27ac7f7549",
+      "src/docs/challenge/recovery_05.txt": "f717cfb8a28c5bd24f4515615e2b505b6f6cded19e2ae98d76f1eeb8297aff8f",
+      "src/docs/challenge/recovery_06.txt": "345eef4abe4f118eab95a15031c47f9dee975a763fcc30a0a36ae2052c3c29ba",
+      "src/docs/challenge/recovery_07.txt": "eb2b05dc7f2c3513a76c7dc5e1d6f45300eed34511929c2ebe05ebe8f22335fe",
+      "src/docs/challenge/recovery_08.txt": "0d8e664728913edbf7f7911629d833ef66eea9423fb79daeb7834acd9d713f41",
+      "src/docs/challenge/relay_01.txt": "5346b876d9eb736de7ae79505df2bb20625a62bdb9f55dd11d2eef3d4aad745c",
+      "src/docs/challenge/relay_02.txt": "1958b7f124c245cd02c7e4d4c2eb5d2b286f463bba9f6debb54ddad2fa73e1c9",
+      "src/docs/challenge/relay_03.txt": "ff0018c4a51fcac49fb526dffee8402f554aed101dd8ce6433b8d92701b270a1",
+      "src/docs/challenge/relay_04.txt": "434c3495d8ae927d4a4d16d6620ba5e3d98a6a65133fa70091cdd4a2c21e7d5d",
+      "src/docs/challenge/relay_05.txt": "f2c57e32d9e459ae22ce454377d567f736b683283b3cc6fd0867666aae6b798d",
+      "src/docs/challenge/relay_06.txt": "6bc40702e25afdc10f3914f0efb101233bd8b28dfba2370750db5ee316a15e8d",
+      "src/docs/challenge/relay_07.txt": "865d00a2bef27f1bb39c3f0b493662d65a23efac2efcfca147f64adfec5e81d4",
+      "src/docs/challenge/relay_08.txt": "cb5561ce935b721e5e4179a8784c3d3fbb48510507fa37afff5ca5f9722e9cd4",
+      "bench/challenge_queries.json": "88af0b3a3f1994a3b62a9f7b15413c3e67284c2ea8bd07f825312b0a761b7f95"
+    },
+    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_model_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "embedding_device": "cpu",
+    "top_k": 5,
+    "chunk_size": 700,
+    "chunk_overlap": 100,
+    "tokenizer": "cl100k_base",
+    "document_count": 24,
+    "chunk_count": 24,
+    "query_count": 18,
+    "document_token_counts": {
+      "src/docs/challenge/queue_01.txt": 68,
+      "src/docs/challenge/queue_02.txt": 67,
+      "src/docs/challenge/queue_03.txt": 68,
+      "src/docs/challenge/queue_04.txt": 71,
+      "src/docs/challenge/queue_05.txt": 75,
+      "src/docs/challenge/queue_06.txt": 72,
+      "src/docs/challenge/queue_07.txt": 70,
+      "src/docs/challenge/queue_08.txt": 68,
+      "src/docs/challenge/recovery_01.txt": 73,
+      "src/docs/challenge/recovery_02.txt": 73,
+      "src/docs/challenge/recovery_03.txt": 73,
+      "src/docs/challenge/recovery_04.txt": 74,
+      "src/docs/challenge/recovery_05.txt": 73,
+      "src/docs/challenge/recovery_06.txt": 78,
+      "src/docs/challenge/recovery_07.txt": 73,
+      "src/docs/challenge/recovery_08.txt": 73,
+      "src/docs/challenge/relay_01.txt": 74,
+      "src/docs/challenge/relay_02.txt": 73,
+      "src/docs/challenge/relay_03.txt": 78,
+      "src/docs/challenge/relay_04.txt": 72,
+      "src/docs/challenge/relay_05.txt": 78,
+      "src/docs/challenge/relay_06.txt": 78,
+      "src/docs/challenge/relay_07.txt": 73,
+      "src/docs/challenge/relay_08.txt": 71
+    },
+    "index_source_order": [
+      "src/docs/challenge/queue_01.txt",
+      "src/docs/challenge/queue_02.txt",
+      "src/docs/challenge/queue_03.txt",
+      "src/docs/challenge/queue_04.txt",
+      "src/docs/challenge/queue_05.txt",
+      "src/docs/challenge/queue_06.txt",
+      "src/docs/challenge/queue_07.txt",
+      "src/docs/challenge/queue_08.txt",
+      "src/docs/challenge/recovery_01.txt",
+      "src/docs/challenge/recovery_02.txt",
+      "src/docs/challenge/recovery_03.txt",
+      "src/docs/challenge/recovery_04.txt",
+      "src/docs/challenge/recovery_05.txt",
+      "src/docs/challenge/recovery_06.txt",
+      "src/docs/challenge/recovery_07.txt",
+      "src/docs/challenge/recovery_08.txt",
+      "src/docs/challenge/relay_01.txt",
+      "src/docs/challenge/relay_02.txt",
+      "src/docs/challenge/relay_03.txt",
+      "src/docs/challenge/relay_04.txt",
+      "src/docs/challenge/relay_05.txt",
+      "src/docs/challenge/relay_06.txt",
+      "src/docs/challenge/relay_07.txt",
+      "src/docs/challenge/relay_08.txt"
+    ],
+    "faiss_index_type": "IndexFlatIP",
+    "faiss_metric_type": 0,
+    "embedding_dimension": 384,
+    "vector_normalization": "L2 for documents and queries (production behavior)",
+    "seed": 0,
+    "torch_threads": 1,
+    "faiss_threads": 1,
+    "python_version": "3.12.3",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "packages": {
+      "sentence-transformers": "6.0.1",
+      "transformers": "5.17.0",
+      "torch": "2.14.0",
+      "faiss-cpu": "1.15.0",
+      "numpy": "2.5.3",
+      "tiktoken": "0.14.0",
+      "huggingface-hub": "1.31.0",
+      "tokenizers": "0.23.2"
+    },
+    "latency_protocol": {
+      "clock": "time.perf_counter",
+      "warmup_query": "internal knowledge base",
+      "warmup_calls": 1,
+      "timed_calls_per_query": 1,
+      "includes": "query embedding, normalization, FAISS search, result assembly",
+      "excludes": "index build/load, model load, warmup, scoring, answer generation",
+      "p95_method": "nearest rank"
+    },
+    "metric_definition": "Hit@5: expected source in returned top 5. MRR@5: mean 1/rank of expected source, zero when absent. One relevant source and one chunk per document; no source deduplication."
+  },
+  "queries": [
+    {
+      "id": "challenge-lex-01",
+      "category": "exact_lexical",
+      "query": "QW_E17_B4",
+      "expected_source": "src/docs/challenge/queue_03.txt",
+      "ranked_sources": [
+        "src/docs/challenge/queue_03.txt",
+        "src/docs/challenge/queue_05.txt",
+        "src/docs/challenge/queue_01.txt",
+        "src/docs/challenge/queue_04.txt",
+        "src/docs/challenge/queue_08.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 9.546786000100838
+    },
+    {
+      "id": "challenge-lex-02",
+      "category": "exact_lexical",
+      "query": "QW_E17_D2",
+      "expected_source": "src/docs/challenge/queue_06.txt",
+      "ranked_sources": [
+        "src/docs/challenge/queue_05.txt",
+        "src/docs/challenge/queue_03.txt",
+        "src/docs/challenge/queue_04.txt",
+        "src/docs/challenge/queue_06.txt",
+        "src/docs/challenge/queue_01.txt"
+      ],
+      "expected_source_rank": 4,
+      "hit_at_5": 1,
+      "reciprocal_rank": 0.25,
+      "latency_ms": 9.698682999442099
+    },
+    {
+      "id": "challenge-lex-03",
+      "category": "exact_lexical",
+      "query": "QW_E17_F1",
+      "expected_source": "src/docs/challenge/queue_08.txt",
+      "ranked_sources": [
+        "src/docs/challenge/queue_05.txt",
+        "src/docs/challenge/queue_03.txt",
+        "src/docs/challenge/queue_08.txt",
+        "src/docs/challenge/queue_01.txt",
+        "src/docs/challenge/queue_04.txt"
+      ],
+      "expected_source_rank": 3,
+      "hit_at_5": 1,
+      "reciprocal_rank": 0.3333333333333333,
+      "latency_ms": 9.010443999613926
+    },
+    {
+      "id": "challenge-lex-04",
+      "category": "exact_lexical",
+      "query": "relay-routes.v2b.yaml",
+      "expected_source": "src/docs/challenge/relay_02.txt",
+      "ranked_sources": [
+        "src/docs/challenge/relay_02.txt",
+        "src/docs/challenge/relay_01.txt",
+        "src/docs/challenge/relay_07.txt",
+        "src/docs/challenge/relay_08.txt",
+        "src/docs/challenge/relay_03.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 9.83346800057916
+    },
+    {
+      "id": "challenge-lex-05",
+      "category": "exact_lexical",
+      "query": "retry_ack_ms",
+      "expected_source": "src/docs/challenge/relay_05.txt",
+      "ranked_sources": [
+        "src/docs/challenge/relay_05.txt",
+        "src/docs/challenge/relay_06.txt",
+        "src/docs/challenge/recovery_05.txt",
+        "src/docs/challenge/recovery_08.txt",
+        "src/docs/challenge/queue_03.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 9.684272999948007
+    },
+    {
+      "id": "challenge-lex-06",
+      "category": "exact_lexical",
+      "query": "NQ-7B",
+      "expected_source": "src/docs/challenge/recovery_07.txt",
+      "ranked_sources": [
+        "src/docs/challenge/recovery_08.txt",
+        "src/docs/challenge/recovery_06.txt",
+        "src/docs/challenge/recovery_07.txt",
+        "src/docs/challenge/queue_04.txt",
+        "src/docs/challenge/queue_08.txt"
+      ],
+      "expected_source_rank": 3,
+      "hit_at_5": 1,
+      "reciprocal_rank": 0.3333333333333333,
+      "latency_ms": 8.620496000730782
+    },
+    {
+      "id": "challenge-sem-01",
+      "category": "semantic",
+      "query": "Where do I ask for more space when the place holding bad messages is full and delivery has halted?",
+      "expected_source": "src/docs/challenge/queue_04.txt",
+      "ranked_sources": [
+        "src/docs/challenge/queue_04.txt",
+        "src/docs/challenge/queue_06.txt",
+        "src/docs/challenge/queue_02.txt",
+        "src/docs/challenge/queue_01.txt",
+        "src/docs/challenge/recovery_07.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 11.797320000368927
+    },
+    {
+      "id": "challenge-sem-02",
+      "category": "semantic",
+      "query": "A job was given to an owner responsible for another partition. How should we get it moving again?",
+      "expected_source": "src/docs/challenge/queue_05.txt",
+      "ranked_sources": [
+        "src/docs/challenge/queue_05.txt",
+        "src/docs/challenge/queue_01.txt",
+        "src/docs/challenge/queue_06.txt",
+        "src/docs/challenge/queue_02.txt",
+        "src/docs/challenge/queue_07.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 11.706262000188872
+    },
+    {
+      "id": "challenge-sem-03",
+      "category": "semantic",
+      "query": "Which file do we edit to send actual purchases to a newly approved backend?",
+      "expected_source": "src/docs/challenge/relay_01.txt",
+      "ranked_sources": [
+        "src/docs/challenge/relay_01.txt",
+        "src/docs/challenge/relay_07.txt",
+        "src/docs/challenge/relay_08.txt",
+        "src/docs/challenge/recovery_04.txt",
+        "src/docs/challenge/recovery_02.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 10.637981000400032
+    },
+    {
+      "id": "challenge-sem-04",
+      "category": "semantic",
+      "query": "I want to see which purchases would be recovered, but I must not start any jobs yet. How do I do that?",
+      "expected_source": "src/docs/challenge/recovery_01.txt",
+      "ranked_sources": [
+        "src/docs/challenge/recovery_04.txt",
+        "src/docs/challenge/recovery_01.txt",
+        "src/docs/challenge/recovery_02.txt",
+        "src/docs/challenge/recovery_03.txt",
+        "src/docs/challenge/recovery_07.txt"
+      ],
+      "expected_source_rank": 2,
+      "hit_at_5": 1,
+      "reciprocal_rank": 0.5,
+      "latency_ms": 12.865601000157767
+    },
+    {
+      "id": "challenge-sem-05",
+      "category": "semantic",
+      "query": "The partner has confirmed these purchases but our own ledger has no entries. How do we repair our records without buying them twice?",
+      "expected_source": "src/docs/challenge/recovery_04.txt",
+      "ranked_sources": [
+        "src/docs/challenge/recovery_04.txt",
+        "src/docs/challenge/recovery_07.txt",
+        "src/docs/challenge/recovery_01.txt",
+        "src/docs/challenge/recovery_03.txt",
+        "src/docs/challenge/recovery_08.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 13.592764999884821
+    },
+    {
+      "id": "challenge-sem-06",
+      "category": "semantic",
+      "query": "An inquiry will outlast the normal purge deadline. Who can make sure the batch evidence survives?",
+      "expected_source": "src/docs/challenge/recovery_06.txt",
+      "ranked_sources": [
+        "src/docs/challenge/recovery_03.txt",
+        "src/docs/challenge/recovery_04.txt",
+        "src/docs/challenge/recovery_06.txt",
+        "src/docs/challenge/recovery_05.txt",
+        "src/docs/challenge/recovery_01.txt"
+      ],
+      "expected_source_rank": 3,
+      "hit_at_5": 1,
+      "reciprocal_rank": 0.3333333333333333,
+      "latency_ms": 13.00459000049159
+    },
+    {
+      "id": "challenge-mix-01",
+      "category": "mixed",
+      "query": "QW_E17_A2 has stopped dispatch. What must we fix before connecting the worker again?",
+      "expected_source": "src/docs/challenge/queue_02.txt",
+      "ranked_sources": [
+        "src/docs/challenge/queue_06.txt",
+        "src/docs/challenge/queue_03.txt",
+        "src/docs/challenge/queue_07.txt",
+        "src/docs/challenge/queue_01.txt",
+        "src/docs/challenge/queue_08.txt"
+      ],
+      "expected_source_rank": null,
+      "hit_at_5": 0,
+      "reciprocal_rank": 0.0,
+      "latency_ms": 12.019161999887729
+    },
+    {
+      "id": "challenge-mix-02",
+      "category": "mixed",
+      "query": "After a leader change, QW_E17_D3 appears. Which metadata should the worker obtain?",
+      "expected_source": "src/docs/challenge/queue_07.txt",
+      "ranked_sources": [
+        "src/docs/challenge/queue_07.txt",
+        "src/docs/challenge/queue_08.txt",
+        "src/docs/challenge/queue_01.txt",
+        "src/docs/challenge/queue_05.txt",
+        "src/docs/challenge/queue_02.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 12.12212699920201
+    },
+    {
+      "id": "challenge-mix-03",
+      "category": "mixed",
+      "query": "Aster-Relay-R has stopped getting mirrored requests. Which permission or connection should I inspect?",
+      "expected_source": "src/docs/challenge/relay_03.txt",
+      "ranked_sources": [
+        "src/docs/challenge/relay_03.txt",
+        "src/docs/challenge/relay_04.txt",
+        "src/docs/challenge/relay_02.txt",
+        "src/docs/challenge/relay_07.txt",
+        "src/docs/challenge/relay_06.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 11.863962999996147
+    },
+    {
+      "id": "challenge-mix-04",
+      "category": "mixed",
+      "query": "Does downloading routes/v3b put the proposed changes into service or only give reviewers a document?",
+      "expected_source": "src/docs/challenge/relay_07.txt",
+      "ranked_sources": [
+        "src/docs/challenge/relay_07.txt",
+        "src/docs/challenge/relay_08.txt",
+        "src/docs/challenge/relay_01.txt",
+        "src/docs/challenge/relay_02.txt",
+        "src/docs/challenge/relay_04.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 12.043478000123287
+    },
+    {
+      "id": "challenge-mix-05",
+      "category": "mixed",
+      "query": "With rivetctl recover --apply --only-pending, will requests already accepted by the partner be sent again?",
+      "expected_source": "src/docs/challenge/recovery_03.txt",
+      "ranked_sources": [
+        "src/docs/challenge/recovery_05.txt",
+        "src/docs/challenge/recovery_03.txt",
+        "src/docs/challenge/recovery_04.txt",
+        "src/docs/challenge/recovery_01.txt",
+        "src/docs/challenge/recovery_02.txt"
+      ],
+      "expected_source_rank": 2,
+      "hit_at_5": 1,
+      "reciprocal_rank": 0.5,
+      "latency_ms": 12.892418999399524
+    },
+    {
+      "id": "challenge-mix-06",
+      "category": "mixed",
+      "query": "A batch is stopped under NQ-7C. Which team must authorize its release?",
+      "expected_source": "src/docs/challenge/recovery_08.txt",
+      "ranked_sources": [
+        "src/docs/challenge/recovery_08.txt",
+        "src/docs/challenge/recovery_07.txt",
+        "src/docs/challenge/recovery_06.txt",
+        "src/docs/challenge/recovery_03.txt",
+        "src/docs/challenge/queue_04.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 12.055885999870952
+    }
+  ],
+  "aggregate": {
+    "all": {
+      "query_count": 18,
+      "hit_at_5": 0.9444444444444444,
+      "mrr_at_5": 0.7361111111111112,
+      "latency_ms": {
+        "mean": 11.277539111132581,
+        "median": 11.830641500182537,
+        "p95": 13.592764999884821
+      }
+    },
+    "by_category": {
+      "exact_lexical": {
+        "query_count": 6,
+        "hit_at_5": 1,
+        "mrr_at_5": 0.6527777777777778,
+        "latency_ms": {
+          "mean": 9.399025000069136,
+          "median": 9.615529500024422,
+          "p95": 9.83346800057916
+        }
+      },
+      "mixed": {
+        "query_count": 6,
+        "hit_at_5": 0.8333333333333334,
+        "mrr_at_5": 0.75,
+        "latency_ms": {
+          "mean": 12.166172499746608,
+          "median": 12.04968199999712,
+          "p95": 12.892418999399524
+        }
+      },
+      "semantic": {
+        "query_count": 6,
+        "hit_at_5": 1,
+        "mrr_at_5": 0.8055555555555556,
+        "latency_ms": {
+          "mean": 12.267419833582002,
+          "median": 12.331460500263347,
+          "p95": 13.592764999884821
+        }
+      }
+    }
+  }
+}

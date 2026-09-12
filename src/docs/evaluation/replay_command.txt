@@ -1,0 +1,2 @@
+Replaying quarantined events
+Run rivetctl replay --queue quarantine --dry-run to preview which quarantined events would be retried. The preview lists event identifiers without submitting them. After fixing the underlying validation error, remove --dry-run to submit the events. Limit a replay to one tenant at a time. Record the replay batch identifier in the incident ticket.

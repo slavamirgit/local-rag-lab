@@ -1,0 +1,2 @@
+Queue recovery notice
+The queue worker stops dispatching and reports QW_E17_F1. The saved queue metadata snapshot failed its checksum verification. Restore the last verified metadata snapshot before registering the worker again. Preserve pending messages and record the worker generation in the incident. Do not replay payloads until the snapshot has been restored and its checksum verified.

@@ -1,0 +1,20 @@
+[
+  {"id": "challenge-lex-01", "category": "exact_lexical", "query": "QW_E17_B4", "expected_source": "src/docs/challenge/queue_03.txt"},
+  {"id": "challenge-lex-02", "category": "exact_lexical", "query": "QW_E17_D2", "expected_source": "src/docs/challenge/queue_06.txt"},
+  {"id": "challenge-lex-03", "category": "exact_lexical", "query": "QW_E17_F1", "expected_source": "src/docs/challenge/queue_08.txt"},
+  {"id": "challenge-lex-04", "category": "exact_lexical", "query": "relay-routes.v2b.yaml", "expected_source": "src/docs/challenge/relay_02.txt"},
+  {"id": "challenge-lex-05", "category": "exact_lexical", "query": "retry_ack_ms", "expected_source": "src/docs/challenge/relay_05.txt"},
+  {"id": "challenge-lex-06", "category": "exact_lexical", "query": "NQ-7B", "expected_source": "src/docs/challenge/recovery_07.txt"},
+  {"id": "challenge-sem-01", "category": "semantic", "query": "Where do I ask for more space when the place holding bad messages is full and delivery has halted?", "expected_source": "src/docs/challenge/queue_04.txt"},
+  {"id": "challenge-sem-02", "category": "semantic", "query": "A job was given to an owner responsible for another partition. How should we get it moving again?", "expected_source": "src/docs/challenge/queue_05.txt"},
+  {"id": "challenge-sem-03", "category": "semantic", "query": "Which file do we edit to send actual purchases to a newly approved backend?", "expected_source": "src/docs/challenge/relay_01.txt"},
+  {"id": "challenge-sem-04", "category": "semantic", "query": "I want to see which purchases would be recovered, but I must not start any jobs yet. How do I do that?", "expected_source": "src/docs/challenge/recovery_01.txt"},
+  {"id": "challenge-sem-05", "category": "semantic", "query": "The partner has confirmed these purchases but our own ledger has no entries. How do we repair our records without buying them twice?", "expected_source": "src/docs/challenge/recovery_04.txt"},
+  {"id": "challenge-sem-06", "category": "semantic", "query": "An inquiry will outlast the normal purge deadline. Who can make sure the batch evidence survives?", "expected_source": "src/docs/challenge/recovery_06.txt"},
+  {"id": "challenge-mix-01", "category": "mixed", "query": "QW_E17_A2 has stopped dispatch. What must we fix before connecting the worker again?", "expected_source": "src/docs/challenge/queue_02.txt"},
+  {"id": "challenge-mix-02", "category": "mixed", "query": "After a leader change, QW_E17_D3 appears. Which metadata should the worker obtain?", "expected_source": "src/docs/challenge/queue_07.txt"},
+  {"id": "challenge-mix-03", "category": "mixed", "query": "Aster-Relay-R has stopped getting mirrored requests. Which permission or connection should I inspect?", "expected_source": "src/docs/challenge/relay_03.txt"},
+  {"id": "challenge-mix-04", "category": "mixed", "query": "Does downloading routes/v3b put the proposed changes into service or only give reviewers a document?", "expected_source": "src/docs/challenge/relay_07.txt"},
+  {"id": "challenge-mix-05", "category": "mixed", "query": "With rivetctl recover --apply --only-pending, will requests already accepted by the partner be sent again?", "expected_source": "src/docs/challenge/recovery_03.txt"},
+  {"id": "challenge-mix-06", "category": "mixed", "query": "A batch is stopped under NQ-7C. Which team must authorize its release?", "expected_source": "src/docs/challenge/recovery_08.txt"}
+]

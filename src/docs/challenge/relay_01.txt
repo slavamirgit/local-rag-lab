@@ -1,0 +1,2 @@
+Relay routing change procedure
+The manifest relay-routes.v2a.yaml selects the approved upstream for live order submissions. Changes require Routing Operations review and a staging check before rollout. Only this manifest switches where real purchases are sent. Confirm the new upstream has passed acceptance checks before applying it. Record the manifest revision in the deployment ticket and retain the previous revision for rollback.
