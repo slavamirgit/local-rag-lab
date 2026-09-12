@@ -129,11 +129,11 @@ def main():
         raise ValueError("The rebuilt index must contain one chunk per document")
 
     warmup_query = "internal knowledge base"
-    query.retrieve(warmup_query)
+    query.retrieve_vector(warmup_query)
     rows = []
     for record in queries:
         started = perf_counter()
-        contexts = query.retrieve(record["query"])
+        contexts = query.retrieve_vector(record["query"])
         latency_ms = (perf_counter() - started) * 1000
         ranked_sources = [source_name(context["source"]) for context in contexts]
         rank = next((i for i, source in enumerate(ranked_sources, 1)
@@ -159,7 +159,7 @@ def main():
             "corpus_path": corpus_name,
             "queries_path": queries_name,
             "freeze_manifest_sha256": manifest_hashes,
-            "retrieval_entrypoint": "rag.query.retrieve",
+            "retrieval_entrypoint": "rag.query.retrieve_vector",
             "git_revision": subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
             ).strip(),

@@ -29,4 +29,5 @@ QUERY_EXPANSION_TIMEOUT = 15
 
 # RAG retrieval configuration
 TOP_K = 5
+VECTOR_CANDIDATES = 20
 RRF_K = 60
