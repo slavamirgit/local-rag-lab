@@ -18,5 +18,10 @@ CHUNKS_PATH = "chunks.pkl"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen3:0.6b"
 
+# Query expansion configuration
+QUERY_EXPANSION_MAX_TERMS = 5
+QUERY_EXPANSION_TEMPERATURE = 0.0
+QUERY_EXPANSION_TIMEOUT = 15
+
 # RAG retrieval configuration
 TOP_K = 5
