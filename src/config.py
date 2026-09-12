@@ -14,6 +14,10 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 FAISS_INDEX_PATH = "index.faiss"
 CHUNKS_PATH = "chunks.pkl"
 
+# Lexical index path (relative to src directory) and candidate count
+FTS_INDEX_PATH = "fts_index.db"
+FTS_CANDIDATES = 20
+
 # Ollama configuration
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen3:0.6b"

@@ -161,6 +161,12 @@ Desktop.ini
 *.faiss
 index.faiss
 
+# Generated SQLite lexical index and sidecars
+fts_index.db
+fts_index.db-journal
+fts_index.db-wal
+fts_index.db-shm
+
 # Pickle files (chunks cache)
 *.pkl
 chunks.pkl
