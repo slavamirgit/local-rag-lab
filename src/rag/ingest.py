@@ -46,8 +46,6 @@ def ingest_documents():
                 })
             except Exception as e:
                 print(f"Error loading {path}: {e}")
-        else:
-            [documents.append(doc) for doc in ingest_documents(path)]
 
     return documents
 
