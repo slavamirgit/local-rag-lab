@@ -8,11 +8,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from rag.ingest import ingest_documents
 from rag.chunk import chunk_documents
 from rag.embed import embed_chunks
+from rag.fts import build_fts_index
 from config import FAISS_INDEX_PATH, CHUNKS_PATH
 
 
 def build_index():
-    """Build FAISS index from documents."""
+    """Build FAISS and FTS indexes from the same ordered document chunks."""
     # Resolve paths relative to src directory
     src_dir = Path(__file__).parent.parent
     index_path = src_dir / FAISS_INDEX_PATH
@@ -41,6 +42,9 @@ def build_index():
     faiss.write_index(index, str(index_path))
     with open(chunks_path, "wb") as f:
         pickle.dump(chunks, f)
+
+    print("📦 Creating FTS index...")
+    build_fts_index(chunks)
 
     print(f"✅ Indexing complete: {len(chunks)} chunks indexed")
     print(f"   Index saved to: {index_path}")

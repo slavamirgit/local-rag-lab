@@ -69,8 +69,11 @@ PyTorch uses one CPU thread to reduce run-to-run scheduling variation. The model
 chunking, TOP_K=5, normalization, and FAISS IndexFlatIP behavior are unchanged.
 The script never calls answer generation or Ollama.
 
-Runtime artifacts are written to `bench/.runtime/<dataset>/index.faiss` and
-`bench/.runtime/<dataset>/chunks.pkl`, where dataset is `sanity` or `challenge`.
+Current production index construction also builds an FTS index from the same
+ordered chunks. Benchmark rebuilds write `index.faiss`, `chunks.pkl`, and
+`fts_index.db` to `bench/.runtime/<dataset>/`, where dataset is `sanity` or
+`challenge`. Measured retrieval remains vector-only through `rag.query.retrieve`;
+the runner does not call FTS search, Query Expansion, or RRF.
 They remain ignored, disposable build products and are separate from each other
 and the normal application index. Earlier sanity artifacts may remain directly
 under `bench/.runtime/`; the shared runner does not use them. It verifies exactly

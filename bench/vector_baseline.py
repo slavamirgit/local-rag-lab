@@ -101,6 +101,7 @@ def main():
     config.DOCUMENTS_DIR = str(corpus)
     config.FAISS_INDEX_PATH = str(runtime / "index.faiss")
     config.CHUNKS_PATH = str(runtime / "chunks.pkl")
+    config.FTS_INDEX_PATH = str(runtime / "fts_index.db")
 
     from rag import build_index, chunk, ingest
 
