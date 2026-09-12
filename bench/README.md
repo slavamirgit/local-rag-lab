@@ -1,5 +1,7 @@
 # Frozen retrieval datasets and measurements
 
+All commands in this document run from the repository root.
+
 Both synthetic datasets were defined before hybrid retrieval was implemented.
 Each corpus and its query labels were frozen before its first vector retrieval
 run. Neither dataset was tuned after observing results. They are separate inputs
@@ -137,6 +139,15 @@ that order, followed by exactly one repeat of each dataset. The vector result
 files above remain unchanged. No production code, configuration, expansion
 prompt, weights, candidate depths, corpus, queries, labels, or expected sources
 were tuned after inspecting hybrid results.
+
+The retained hybrid measurements were recorded at commit `231305e`.
+Subsequent commits `b998082` and `6f31078` fixed failure isolation and concurrency
+correctness. A final audit of implementation commit `6f31078` reproduced the same
+challenge query IDs, expansion inputs, ranked sources, expected-source ranks,
+Hit@5, and MRR@5. The retained measurements therefore remain valid and the
+result JSON files were not regenerated. The audit observed timing differences;
+historical latency remains tied to the retained measurement environment/run,
+not a claim of unchanged timing on current HEAD.
 
 The dedicated `hybrid_benchmark.py` verifies current corpus/query SHA-256 hashes
 against the corresponding frozen vector result before loading models. It also

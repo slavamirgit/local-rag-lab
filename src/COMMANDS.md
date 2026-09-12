@@ -1,144 +1,119 @@
-# Setup and Run Commands
+# Setup and run commands
 
-Run these commands in order to set up and use the Company Knowledge Base Assistant.
+These commands use a `.venv` in the **repository root**. Application commands
+run from **`src`**. Benchmark and automated test commands run from the
+**repository root**.
 
 ## Prerequisites
 
-1. **Install Python 3.10+** (if not already installed)
-2. **Install Ollama** and pull the model:
-   ```bash
-   # macOS
-   brew install ollama
-   
-   # Or download from https://ollama.ai
-   
-   # Pull the model
-   ollama pull llama3
-   ```
+Install Python, Ollama, and use a Python SQLite build with FTS5 support. The
+existing automated suite uses `contextlib.chdir` and requires Python 3.11+.
 
-## Setup Steps
+Start the Ollama service if it is not already running (in a separate terminal;
+working directory does not matter):
 
-### 1. Navigate to the src directory
+```bash
+ollama serve
+```
+
+Pull and check the configured model (from any working directory):
+
+```bash
+ollama pull qwen3:0.6b
+ollama list
+```
+
+## Install dependencies
+
+Starting in the **repository root**:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r src/requirements.txt
+```
+
+Initial model use may download the embedding model and tiktoken encoding;
+cache them before offline operation.
+
+## Prepare documents and build the indexes
+
+Starting in the **repository root**:
+
 ```bash
 cd src
-```
-
-### 2. Create a virtual environment (recommended)
-```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-### 3. Install dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Create documents directory
-```bash
 mkdir -p docs
+# Add .txt, .md, .pdf, or .docx files under docs/ (subdirectories are supported).
+# Review config.py if using a different documents directory.
+../.venv/bin/python main.py build-index
 ```
 
-### 5. Add company documentation
-Add your company documentation files (`.txt`, `.md`, `.pdf`, `.docx`) to the `docs/` directory:
-```bash
-# Example: Copy some sample documents
-# cp /path/to/company/docs/* docs/
-```
+This loads documents recursively, splits them into 700-token chunks with
+100-token overlap, generates embeddings, and builds:
 
-### 6. Update configuration (optional)
-Edit `config.py` if needed:
-- Set `DOCUMENTS_DIR` to your documents path (default: `./docs`)
-- Change `OLLAMA_MODEL` if using a different model
-- Adjust `CHUNK_SIZE`, `CHUNK_OVERLAP`, or `TOP_K` as needed
+- `index.faiss`: FAISS vector index.
+- `chunks.pkl`: ordered chunk dictionaries shared by vector and lexical retrieval.
+- `fts_index.db`: SQLite FTS5 index over the same chunk text.
 
-### 7. Build the FAISS index (Optional)
-
-The index will be built automatically on first use. To manually build it:
+The equivalent direct build command, **while in `src`**, is:
 
 ```bash
-python main.py build-index
+../.venv/bin/python -m rag.build_index
 ```
 
-Or directly:
+An installation with old FAISS/chunks artifacts **must run `build-index` again**
+to create `fts_index.db`. Readiness may build when chunks or FAISS cannot be
+loaded, but a missing FTS index alone does not trigger a rebuild.
+
+Relative `FAISS_INDEX_PATH` and `CHUNKS_PATH` values resolve relative to `src`.
+`DOCUMENTS_DIR` (default `./docs`) and `FTS_INDEX_PATH` (default `fts_index.db`)
+resolve relative to the current working directory when not absolute. With
+`src` as cwd, the defaults put all three artifacts beside `main.py`.
+See [README.md](README.md#configuration) for all current configuration defaults.
+
+## Run the interactive application
+
+**While in `src`** after the build:
+
 ```bash
-python -m rag.build_index
+../.venv/bin/python main.py
 ```
 
-This will:
-- Load all documents from the `docs/` directory
-- Chunk them into smaller pieces
-- Generate embeddings
-- Build the FAISS index
-- Save `index.faiss` and `chunks.pkl`
+Ask a documentation question. The production path uses Query Expansion,
+shared artifact readiness, parallel vector/FTS search, RRF, and the existing
+answer-generation/MCP flow. Type `exit`, `quit`, or `q` to stop.
 
-## Usage
+## Update the knowledge base
 
-### Interactive CLI Mode
+After adding or editing source documents, rebuild **from `src`**:
 
-Run the assistant interactively:
 ```bash
-python main.py
+../.venv/bin/python main.py build-index
 ```
 
-Then ask questions like:
-- "What is our vacation policy?"
-- "How do I request time off?"
-- "What are the company values?"
+Restart a running assistant after rebuilding so it loads the new artifacts.
 
-Type `exit` or `quit` to stop.
+## Run automated tests
 
-## Updating the Knowledge Base
+From the **repository root** (run `cd ..` first if currently in `src`):
 
-When you add new documents or update existing ones:
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
 
-1. Add/update files in the `docs/` directory
-2. Rebuild the index:
-   ```bash
-   python main.py build-index
-   ```
+For benchmark methodology and reproduction commands, see
+[../bench/README.md](../bench/README.md). Benchmark commands run from the repository
+root; use new output paths to preserve the retained result JSON files.
 
 ## Troubleshooting
 
-### "Index not found" error
-- The index will be built automatically on first use
-- Or manually run `python main.py build-index`
-
-### "No documents found"
-- Check that `docs/` directory exists and contains files
-- Verify `DOCUMENTS_DIR` in `config.py` is correct
-- Ensure files have supported extensions (`.txt`, `.md`, `.pdf`, `.docx`)
-
-### Ollama connection errors
-- Make sure Ollama is running: `ollama list`
-- Verify the model is installed: `ollama pull llama3`
-- Check `OLLAMA_URL` in `config.py` (default: `http://localhost:11434/api/generate`)
-
-### MCP client errors
-- MCP tools are optional - the assistant will work without them
-- If MCP fails, RAG will still function
-
-### Import errors
-- Make sure you're in the `src/` directory
-- Verify virtual environment is activated
-- Check that all dependencies are installed: `pip install -r requirements.txt`
-
-## Quick Start Summary
-
-```bash
-# 1. Setup
-cd src
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 2. Prepare documents
-mkdir -p docs
-# Add your company documentation files to docs/
-
-# 3. Build index
-python main.py build-index
-
-# 4. Run
-python main.py
-```
+- **No documents found:** check `DOCUMENTS_DIR` and run the build from `src`.
+- **Missing FTS index or vector-only results after upgrading:** rebuild all three
+  artifacts with the build command above. Check warnings, path permissions,
+  and SQLite FTS5 support if lexical search remains unavailable.
+- **Ollama connection errors:** ensure the service is running, use `ollama list`
+  to check availability, and verify `qwen3:0.6b` is installed. Expansion failures
+  fall back to the original query; final answer generation still needs Ollama.
+  `OLLAMA_URL` defaults to `http://localhost:11434/api/generate` for these HTTP calls.
+- **MCP client initialization errors:** the assistant can continue without MCP tools.
+- **Import errors:** use the project environment and the specified cwd; reinstall
+  dependencies from the repository root if needed.

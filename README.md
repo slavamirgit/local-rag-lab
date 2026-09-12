@@ -1,364 +1,153 @@
 # Local RAG/MCP Knowledge Base Assistant
 
-# 📋 The Problem
+A local question-answering assistant over your documents, using hybrid retrieval
+and Ollama's `qwen3:0.6b`. The current implementation is complete against
+[SPEC.md](SPEC.md): semantic FAISS search and lexical SQLite FTS5 search select
+contexts for the existing answer-generation and MCP flow.
 
-- **Growing Documentation**: Knowledge scattered across files
-- **Information Retrieval**: Hard to find answers without keywords
-- **Privacy Concerns**: Cloud solutions may not comply with policies
+## Architecture
 
-```
-Users → Search → Answer = 😫
-```
+Index construction recursively loads `.txt`, `.md`, `.pdf`, and `.docx` files
+from the configured documents directory. Text is split with tiktoken's
+`cl100k_base` encoding into **700-token chunks with 100-token overlap**.
+SentenceTransformers (`all-MiniLM-L6-v2`) generates embeddings, which are
+normalized and stored in a FAISS `IndexFlatIP` index. SQLite FTS5 indexes the
+text of the same ordered chunks.
 
-# ✨ The Solution
+```text
+Documents → token chunks ─┬→ embeddings → FAISS
+                         ├→ chunk dictionaries (chunks.pkl)
+                         └→ SQLite FTS5
 
-A **local, intelligent Q&A system** using:
-
-- **RAG**: Semantic search over documentation
-- **MCP**: Dynamic document access
-- **Local LLM**: Privacy-preserving answers (Ollama)
-
-# ✨ Key Benefits
-
-- ✅ Privacy-first (runs locally)
-- ✅ No API costs
-- ✅ Fast semantic search
-- ✅ Intelligent document access
-- ✅ Complete data control
-
-# 🏗️ Architecture - Top Level
-
-```
-┌──────────────────────┐
-│   User Interface     │ (CLI)
-└──────────┬───────────┘
-           │
-     ┌─────┴─────┐
-     ▼           ▼
-  [RAG]       [MCP]
-   Query      Tools
-     │           │
-     └─────┬─────┘
-           ▼
-    [Ollama LLM]
+User query
+    ↓
+Query Expansion (configured local Qwen through Ollama)
+    ↓
+Shared artifact readiness (load/rebuild before parallel searches)
+    ├→ Vector search: original natural-language query ─┐
+    └→ FTS search: original query + expansion terms ───┤ parallel
+                                                     ↓
+                                         Reciprocal Rank Fusion
+                                                     ↓
+                                          Up to TOP_K chunks
+                                                     ↓
+                                  Existing MCP decision/tool flow
+                                                     ↓
+                                 Context prompt → Ollama → answer
 ```
 
-# 🏗️ Architecture - Storage
+`rag.query.retrieve(query)` is the production hybrid retrieval interface. Query
+Expansion extracts a bounded set of search terms; malformed output, empty
+output, timeout, or model failure falls back to the original query. The vector
+branch always embeds the original question. The two search branches run
+concurrently, then RRF combines their ranked chunk positions with equal weights
+and one-based ranks: `sum(1 / (RRF_K + rank))`. Ties are resolved deterministically.
 
-```
-┌────────────────┐
-│  FAISS Index   │ Vector Database
-│  + MCP Tools   │
-└────────┬───────┘
-         │
-    ┌────▼─────┐
-    │   docs/  │
-    │directory │
-    └──────────┘
-```
+The result contains up to `TOP_K` chunk dictionaries with `text`, `source`, and
+`chunk_id`. Either search branch can fail while the other supplies contexts;
+if neither supplies usable contexts, retrieval returns an empty list. This
+fallback concerns retrieval; final answer generation still needs Ollama.
 
-# 🔍 RAG Pipeline
+`rag.query.retrieve_vector(query)` is a vector-only helper for reproduction and
+benchmarking. Application callers continue to use `retrieve(query)`.
 
-1. Document Loading → Read .md, .txt, .pdf, .docx
-2. Chunking → Split into 700-char chunks
-3. Embedding → Use SentenceTransformers
-4. Indexing → Build FAISS vector index
-5. Query → Retrieve top 5 similar chunks
-6. Prompt Building → Create context-aware prompt
-7. LLM Generation → Get answer from model
+## Generated artifacts and paths
 
-# 🔍 Why FAISS?
+| Artifact | Purpose |
+| --- | --- |
+| `index.faiss` | FAISS vector index |
+| `chunks.pkl` | Ordered chunk dictionaries shared by both searches |
+| `fts_index.db` | Persistent SQLite FTS5 text index |
 
-- Fast vector similarity search
-- Lightweight and memory-efficient
-- No external dependencies
-- Perfect for local deployments
-- Millions of vectors supported
+All three are generated from the same chunks and can be rebuilt from source
+documents. SQLite is derived search data, not canonical document storage.
+FAISS and FTS results map to positions in the shared chunk list.
 
-# 🔧 MCP - Model Context Protocol
+Run application commands from `src`. With defaults, all three artifacts are
+written there and documents are read from `src/docs/`. Relative
+`FAISS_INDEX_PATH` and `CHUNKS_PATH` values resolve relative to `src`;
+`DOCUMENTS_DIR` and `FTS_INDEX_PATH` use normal `Path` semantics, so relative
+values resolve from the current working directory. Absolute paths remain absolute.
 
-MCP provides **standardized interface** for LLM tool access:
+**Upgrading an old vector-only installation:** run `build-index` again to create
+`fts_index.db`. Existing FAISS/chunks artifacts do not trigger a rebuild merely
+because the FTS index is missing. Rebuild after changing source documents, too.
 
-```python
-read_document(file_path)
-list_documents()
-search_documents(query)
-```
+## Setup and usage
 
-# 🔧 MCP Benefits
-
-- Tool Use by LLM
-- Real-time document access
-- Standardized interface
-- Easy to extend
-- Local tool execution
-
-# 💻 Tech Stack
-
-```
-Language:      Python 3.10+
-Vector DB:     FAISS
-Embeddings:    SentenceTransformers
-LLM:           Ollama (local)
-MCP:           FastMCP
-```
-
-# 📁 Project Structure
-
-```
-src/
-├── config.py           Configuration
-├── main.py             CLI entry point
-├── assistant.py        Main orchestrator
-├── rag/
-│   ├── ingest.py      Load documents
-│   ├── chunk.py       Split text
-│   ├── embed.py       Generate embeddings
-│   ├── build_index.py Build FAISS index
-│   └── query.py       Retrieve & generate
-├── mcp/
-│   ├── server.py      MCP tool definitions
-│   └── client.py      MCP client wrapper
-└── docs/              Documentation
-```
-
-# 🚀 Index Building (Setup)
-
-```
-$ python main.py build-index
-
-1. Load documents
-  ↓
-2. Split into chunks
-  ↓
-3. Generate embeddings
-  ↓
-4. Build FAISS index
-  ↓
-5. Save files
-```
-
-# 🚀 Query Processing (Runtime)
-
-```
-User Question
-  ↓
-Embed question
-  ↓
-Search FAISS → Top 5 chunks
-  ↓
-LLM decides: Use MCP tools?
-  ↓
-Build prompt + context
-  ↓
-Call Ollama
-  ↓
-Return answer + sources
-```
-
-# ✨ Core Features
-
-- **Semantic Search**: Find by meaning, not keywords
-- **Multi-format**: .md, .txt, .pdf, .docx files
-- **Source Attribution**: Shows document sources
-- **MCP Tools**: LLM can read full documents
-- **No External APIs**: Runs locally only
-- **Fast Retrieval**: Sub-second search
-
-# ⚙️ Configuration Options
-
-```python
-CHUNK_SIZE = 700
-CHUNK_OVERLAP = 100
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-OLLAMA_MODEL = "qwen3:0.6b"
-TOP_K = 5
-```
-
-# 🎬 Live Demo - Starting
+From the repository root, create the project environment and install dependencies:
 
 ```bash
-$ python main.py
+python3 -m venv .venv
+.venv/bin/python -m pip install -r src/requirements.txt
 ```
 
-Output:
-```
-🤖 Company Knowledge Base
-Ask questions about documentation
-Type 'exit' to stop
-```
-
-# 🎬 Demo - Query 1
-
-```
-❓ What are company values?
-
-🤖 Innovation, integrity, collaboration
-
-📚 Sources:
-  • Loan Rangers Team.md
-  • Info Security.md
-```
-
-# 🎬 Demo - Query 2
-
-```
-❓ What documents do we have?
-
-🤖 [Uses MCP list_documents]
-  • Loan Rangers Team.md
-  • Information Security.md
-  • Services.md
-```
-
-# 🎬 Demo - Query 3
-
-```
-❓ Full security policy?
-
-🤖 [Uses MCP read_document]
-[Full document content...]
-```
-
-# 🔐 Security - Local vs Cloud
-
-**Cloud**: Data → Internet → Server
-- ⚠️ Network transmission
-- ⚠️ External storage
-- ⚠️ Subscription costs
-
-**Local**: Data → Local System
-- ✅ No transmission
-- ✅ Local storage only
-- ✅ No costs
-
-# 🔐 Implementation Safeguards
-
-- **MCP Sandbox**: Prevents path traversal
-- **Local Storage**: Documents stay on device
-- **No Telemetry**: No tracking
-- **Offline Ready**: Works without internet
-
-# ⚡ Performance Benchmarks
-
-```
-Index Building:   ~30s (one-time)
-Query Embedding:  ~50ms
-FAISS Search:     ~5ms
-LLM Generation:   2-5s
-Total Cycle:      2-6s
-```
-
-# ⚡ Tuning for Speed
-
-```python
-# Faster (smaller model):
-OLLAMA_MODEL = "qwen3:0.6b"
-
-# Faster retrieval:
-TOP_K = 3
-CHUNK_SIZE = 500
-```
-
-# 🚢 Deployment - Single Machine
-
-```
-1. Install Ollama & Python deps
-2. Copy docs/ to server
-3. Build index
-4. Run with nohup
-
-$ nohup python main.py > log &
-```
-
-# 🚢 Scaling - Option 1: FastAPI
-
-```
-[HTTP Clients]			[HTTP Clients + Webllm]
-       ↓        						 ↓
-   [FastAPI]     				 [FastAPI]
-       ↓         					 ↓
-[Ollama + FAISS]      			  [FAISS]
-```
-
-# 🚢 Scaling - Option 2: Distributed
-
-```
-[Clients] → [Load Balancer]
-             ↓
-      [Multiple Retrievers]
-```
-
-# 🚢 Storage Scaling
-
-```
-Docs     Index      Build
-10 MB    ~2 MB      ~5s
-100 MB   ~20 MB     ~30s
-1 GB     ~200 MB    ~5min
-```
-
-# 🔮 Phase 2: Enhanced Features
-
-- ☐ Web UI (Streamlit)
-- ☐ API endpoints
-- ☐ Multi-language support
-- ☐ Document versioning
-- ☐ Fine-tuned embeddings
-
-# 🔮 Phase 3: Advanced
-
-- ☐ Conversation memory
-- ☐ Multi-hop reasoning
-- ☐ Metadata filtering
-- ☐ Feedback loop
-- ☐ Analytics dashboard
-
-# 🔮 Phase 4: Enterprise
-
-- ☐ User authentication
-- ☐ Audit logging
-- ☐ Role-based access
-- ☐ LLM fine-tuning
-- ☐ Cost analysis
-
-# 📊 Why This Works
-
-| Aspect | Traditional | Our RAG |
-|--------|---|---|
-| **Understanding** | Keywords | Semantic |
-| **Answers** | Documents | Direct |
-| **Privacy** | Cloud | Local |
-| **Cost** | Subscription | One-time |
-| **Speed** | Slow | Sub-second |
-
-# ✅ What You Have Now
-
-- Local privacy-first knowledge base
-- Fast semantic search (FAISS)
-- Intelligent tool use (MCP)
-- Maintainable Python code
-- Foundation for enterprise features
-
-# 🙋 Quick Reference
+With Ollama installed and its local service running (these commands are
+independent of working directory):
 
 ```bash
-# Build index
-python main.py build-index
-
-# Run interactively
-python main.py
-
-# Check config
-cat config.py
+ollama pull qwen3:0.6b
+ollama list
 ```
 
-# 📚 Resources
+From the repository root, enter `src` before building or running:
 
-- **Code**: MobilaName/local-rag-mcp
-- **FAISS**: facebook/faiss
-- **Ollama**: ollama.ai
-- **FastMCP**: github.com/jlowin/fastmcp
-- **Transformers**: huggingface.co
+```bash
+cd src
+mkdir -p docs
+# Add .txt, .md, .pdf, or .docx documents under docs/.
+../.venv/bin/python main.py build-index
+../.venv/bin/python main.py
+```
 
-**Thank You!**
+Type `exit`, `quit`, or `q` to leave the interactive CLI. Models and the tiktoken
+encoding need to be downloaded/cached before offline use. See
+[src/COMMANDS.md](src/COMMANDS.md) for setup, rebuild, and test commands, and
+[src/README.md](src/README.md) for the module layout and troubleshooting.
+
+## Configuration
+
+Current defaults in [src/config.py](src/config.py):
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `DOCUMENTS_DIR` | `"./docs"` | Recursively ingested source directory |
+| `CHUNK_SIZE` | `700` | Tokens per chunk |
+| `CHUNK_OVERLAP` | `100` | Overlap in tokens |
+| `EMBEDDING_MODEL` | `"all-MiniLM-L6-v2"` | SentenceTransformers embedding model |
+| `OLLAMA_MODEL` | `"qwen3:0.6b"` | Local model for expansion and answer/MCP decisions |
+| `OLLAMA_URL` | `"http://localhost:11434/api/generate"` | Expansion and answer-generation endpoint |
+| `FAISS_INDEX_PATH` | `"index.faiss"` | Vector index path |
+| `CHUNKS_PATH` | `"chunks.pkl"` | Shared chunk mapping path |
+| `FTS_INDEX_PATH` | `"fts_index.db"` | SQLite FTS5 path, relative to cwd when not absolute |
+| `TOP_K` | `5` | Maximum final chunks |
+| `VECTOR_CANDIDATES` | `20` | Vector candidate depth before fusion |
+| `FTS_CANDIDATES` | `20` | Lexical candidate depth before fusion |
+| `RRF_K` | `60` | Reciprocal Rank Fusion rank constant |
+| `QUERY_EXPANSION_MAX_TERMS` | `5` | Maximum additional search terms/phrases |
+| `QUERY_EXPANSION_TEMPERATURE` | `0.0` | Expansion generation temperature |
+| `QUERY_EXPANSION_TIMEOUT` | `15` | Expansion HTTP request timeout in seconds |
+
+## MCP compatibility
+
+Hybrid retrieval changes context selection while preserving the existing
+assistant and MCP integration. After retrieval, the assistant can ask the local
+model whether to call `read_document(file_path)`, `list_documents()`, or
+`search_documents(query)` (filename search). Available tool output is added to
+the answer prompt, and the CLI displays retrieved sources.
+
+MCP tools execute locally. The current document-read path check is not a strict
+containment boundary; a pre-existing sibling-path issue is tracked separately.
+
+## Tests and benchmarks
+
+Run the complete automated suite **from the repository root**:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+See [bench/README.md](bench/README.md) for the frozen datasets, vector-versus-hybrid
+methodology, retained measurements, and reproduction commands. Those measurements
+include Query Expansion in hybrid retrieval latency and are specific to their
+recorded runs; they are not end-to-end answer timings.
