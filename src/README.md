@@ -146,9 +146,9 @@ Edit [config.py](config.py); current defaults are:
 
 The existing server provides `read_document(file_path)` (UTF-8 file reading),
 `list_documents()`, and `search_documents(query)` (case-insensitive filename
-search). Hybrid retrieval preserves their integration. The document-read path
-check does not guarantee strict containment; the pre-existing sibling-path
-defect is tracked separately.
+search). Hybrid retrieval preserves their integration. Document reads resolve
+both the requested path and configured documents root, rejecting paths that
+resolve outside that root, including sibling-prefix paths and symlink escapes.
 
 ## Troubleshooting
 

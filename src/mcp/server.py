@@ -13,9 +13,10 @@ mcp = FastMCP("doc-tools", version="1.0.0")
 def read_document(file_path: str) -> str:
     """Reads a document from the knowledge base."""
     try:
-        path = Path(file_path)
-        # Security: ensure path is within documents directory
-        if not str(path.resolve()).startswith(str(Path(DOCUMENTS_DIR).resolve())):
+        root = Path(DOCUMENTS_DIR).resolve()
+        path = Path(file_path).resolve()
+        # Compare path components after resolving traversal and symlinks.
+        if not path.is_relative_to(root):
             return f"Error: Access denied. File must be in {DOCUMENTS_DIR}"
         
         with open(path, "r", encoding="utf-8") as f:

@@ -136,8 +136,9 @@ model whether to call `read_document(file_path)`, `list_documents()`, or
 `search_documents(query)` (filename search). Available tool output is added to
 the answer prompt, and the CLI displays retrieved sources.
 
-MCP tools execute locally. The current document-read path check is not a strict
-containment boundary; a pre-existing sibling-path issue is tracked separately.
+MCP tools execute locally. Document reads resolve both the requested path and
+configured documents root, rejecting paths that resolve outside that root,
+including sibling-prefix paths and symlink escapes.
 
 ## Tests and benchmarks
 
