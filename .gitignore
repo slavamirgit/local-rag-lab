@@ -257,3 +257,7 @@ python-rag/
 !/src/docs/challenge/*.txt
 !/bench/challenge_queries.json
 !/bench/results/vector-challenge-baseline.json
+
+# Retained first hybrid measurements
+!/bench/results/hybrid-sanity.json
+!/bench/results/hybrid-challenge.json

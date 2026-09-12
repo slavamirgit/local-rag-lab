@@ -1,0 +1,707 @@
+{
+  "metadata": {
+    "measured_at_utc": "2026-09-12T08:47:59.821695+00:00",
+    "retrieval_mode": "hybrid",
+    "retrieval_entrypoint": "rag.query.retrieve",
+    "dataset": "sanity",
+    "corpus_path": "src/docs/evaluation",
+    "queries_path": "bench/queries.json",
+    "git_revision": "231305e5d6bab3372a046e9f4825193efe12bb57",
+    "implementation_sha256": {
+      "src/config.py": "4038a1b377f36916f886f5d8d1b58e04e6dbbea37757d16487ab26bb18c22f75",
+      "src/rag/__init__.py": "64db7ccd96cc8448dd1962f416ebee8b2cce282172f800a6dfde2c76f2e5a266",
+      "src/rag/build_index.py": "7a8745192fbe4c606ba9a361cd14347608ffb18393090ddcd6fae8c785c56dcf",
+      "src/rag/chunk.py": "ffa0caeea8f4a13bc1a9dfe1e17b73bcc72f75c2d9f458b3d2e98ce7e3ea3ecd",
+      "src/rag/embed.py": "c371662356bfd62e4621b47fe5ac89a0fa5fa23bc820a325d5fb03d918dff6fe",
+      "src/rag/fts.py": "7d12a8cf00d7eb86736928622ab62b79df234b7a047a225811e6fa6fbcaaabb5",
+      "src/rag/fusion.py": "0616efb7a2777ad7d2c4d53f5d810d92a021fd53bc88b8cd95f8cbdcf7ef7568",
+      "src/rag/ingest.py": "d734bf897b4f66419fe31dc2eb7157291605df8f44a87009ef5bcf5a6df048f2",
+      "src/rag/query.py": "c8a78adf4162fd890ce4882c5aa56400e8d526072ed95ff349f95fd56d84306b",
+      "src/rag/query_expansion.py": "d933992a242c0bdec3c0c4c37f5596c4fb27e0e4bededf5ec169f3552f0ce319"
+    },
+    "benchmark_runner_sha256": {
+      "bench/hybrid_benchmark.py": "058bac20f1a9c416c5fb4ea9a4ad7c04d43ebcd95971fac5db980d2304624a23",
+      "bench/vector_baseline.py": "0eea117bf3a07b819667e936982633242cfbf07aa973f4df14db0cf88d610b7f"
+    },
+    "input_sha256": {
+      "src/docs/evaluation/archive_restore.txt": "f739041b9788f20965f95c1c3af3dc55440899c6654c328765b7bbfee0b5a37f",
+      "src/docs/evaluation/export_pin.txt": "be05ba8ff33eb00a324a5b5ab8098aaa26e6ee737173f74fae22514d3541f04e",
+      "src/docs/evaluation/lost_laptop.txt": "d5ee24475bbc94293aa585b4d6b2defc67c7b1cdd5d28b14accb64d83ac04e35",
+      "src/docs/evaluation/meeting_recordings.txt": "70d9c7d99ca46116e16d5816722800b4985261dc5cb9ade0b9417609e49b1777",
+      "src/docs/evaluation/new_hire_partner.txt": "2c3b27514302c3a1b8d884f091b6a84f60340cd36a8ab5bf9a550e305f7a78f9",
+      "src/docs/evaluation/orinth_snapshot.txt": "5ae7d75d7567e11f273218db250dc215706751bf49ecbddadf84bffa7f144edd",
+      "src/docs/evaluation/payload_validation.txt": "b49b53275a816ad362a135a6754c434cc0cad5c9647b16ee20a4593621577e4a",
+      "src/docs/evaluation/queue_lease.txt": "89fa9bf4e3916e49d65d32798a4f40ac6150383946b1cf42bd164d1d66aa82d3",
+      "src/docs/evaluation/replay_command.txt": "343c9d17491671525c0481f0478ef37097c8324a84822c6e9e77702ba3de6f2d",
+      "src/docs/evaluation/retry_budget.txt": "81ea9dc80f6603eece52a31debff8085a59761b0fddf209c45da7ea985ed66b7",
+      "src/docs/evaluation/route_manifest.txt": "df9723a8db81489715a97f659f96a5841c50d03b81b81de7638040adeddbdbfd",
+      "src/docs/evaluation/serevin.txt": "03f7609ca0e5f9c65b22b0137313a6b1513771f67c4460f5ed61e80415ce15c8",
+      "src/docs/evaluation/temporary_access.txt": "b8341fd269eb335562a834d41d174d1031680ff879096abbb04302b183e13bf4",
+      "src/docs/evaluation/travel_meals.txt": "ed535ad5dfdef2064114fc0c143218687d9eaf31057dc68da31f782e766d9ac9",
+      "src/docs/evaluation/velora.txt": "62843f2cd92615e41c4aba4bf54c750bdd985a587346c5087d95286de42bc5c4",
+      "bench/queries.json": "43fd82d68de7496ac0799763b90d2550c7328b3dd3b999fe6b3d7f973384f450"
+    },
+    "freeze_manifest_sha256": {},
+    "vector_result_sha256": {
+      "bench/results/vector-baseline.json": "cbc8f9abbdd9f57bda6fa6ba4f586e0c938257be64348f0c742ba84c03d59258"
+    },
+    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_model_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "embedding_device": "cuda:0",
+    "ollama_model": "qwen3:0.6b",
+    "ollama_model_digest": "7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435",
+    "top_k": 5,
+    "vector_candidates": 20,
+    "fts_candidates": 20,
+    "rrf_k": 60,
+    "rrf_weights": "production default equal weights",
+    "query_expansion_max_terms": 5,
+    "query_expansion_temperature": 0.0,
+    "query_expansion_timeout": 15,
+    "chunk_size": 700,
+    "chunk_overlap": 100,
+    "document_count": 15,
+    "chunk_count": 15,
+    "query_count": 15,
+    "index_source_order": [
+      "src/docs/evaluation/archive_restore.txt",
+      "src/docs/evaluation/export_pin.txt",
+      "src/docs/evaluation/lost_laptop.txt",
+      "src/docs/evaluation/meeting_recordings.txt",
+      "src/docs/evaluation/new_hire_partner.txt",
+      "src/docs/evaluation/orinth_snapshot.txt",
+      "src/docs/evaluation/payload_validation.txt",
+      "src/docs/evaluation/queue_lease.txt",
+      "src/docs/evaluation/replay_command.txt",
+      "src/docs/evaluation/retry_budget.txt",
+      "src/docs/evaluation/route_manifest.txt",
+      "src/docs/evaluation/serevin.txt",
+      "src/docs/evaluation/temporary_access.txt",
+      "src/docs/evaluation/travel_meals.txt",
+      "src/docs/evaluation/velora.txt"
+    ],
+    "tokenizer": "cl100k_base",
+    "faiss_index_type": "IndexFlatIP",
+    "faiss_metric_type": 0,
+    "embedding_dimension": 384,
+    "seed": 0,
+    "torch_threads": 1,
+    "faiss_threads": 1,
+    "python_version": "3.12.3",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "packages": {
+      "sentence-transformers": "6.0.1",
+      "transformers": "5.17.0",
+      "torch": "2.14.0",
+      "faiss-cpu": "1.15.0",
+      "numpy": "2.5.3",
+      "tiktoken": "0.14.0",
+      "huggingface-hub": "1.31.0",
+      "tokenizers": "0.23.2",
+      "requests": "2.34.2"
+    },
+    "latency_protocol": {
+      "clock": "time.perf_counter",
+      "warmup_query": "internal knowledge base",
+      "warmup_calls": 1,
+      "warmup_observation": {
+        "expansion_raised_unexpectedly": false,
+        "expansion_inputs": [
+          "internal knowledge base",
+          "internal knowledge"
+        ]
+      },
+      "timed_calls_per_query": 1,
+      "includes": "real Query Expansion/Ollama call, parallel vector/FTS searches, RRF, final chunk mapping, expansion observation overhead",
+      "excludes": "availability check, model/index initial loading, index build, warmup, scoring, comparison, serialization, final answer generation",
+      "p95_method": "nearest rank"
+    },
+    "metric_definition": "Hit@5: expected source in returned top 5. MRR@5: mean 1/rank of expected source, zero when absent. One relevant source and one chunk per document; no source deduplication."
+  },
+  "queries": [
+    {
+      "id": "lex-01",
+      "category": "exact_lexical",
+      "query": "EVT_LEASE_409",
+      "expected_source": "src/docs/evaluation/queue_lease.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "EVT_LEASE_409",
+        "409"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/queue_lease.txt",
+        "src/docs/evaluation/payload_validation.txt",
+        "src/docs/evaluation/temporary_access.txt",
+        "src/docs/evaluation/replay_command.txt",
+        "src/docs/evaluation/serevin.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 172.7247670005454
+    },
+    {
+      "id": "lex-02",
+      "category": "exact_lexical",
+      "query": "EVT_SCHEMA_422",
+      "expected_source": "src/docs/evaluation/payload_validation.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "EVT_SCHEMA_422"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/payload_validation.txt",
+        "src/docs/evaluation/queue_lease.txt",
+        "src/docs/evaluation/export_pin.txt",
+        "src/docs/evaluation/replay_command.txt",
+        "src/docs/evaluation/archive_restore.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 98.7938389989722
+    },
+    {
+      "id": "lex-03",
+      "category": "exact_lexical",
+      "query": "gateway-routes.v3.yaml",
+      "expected_source": "src/docs/evaluation/route_manifest.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "gateway-routes.v3.yaml",
+        "yaml",
+        "routes",
+        "v3",
+        "gateway"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/route_manifest.txt",
+        "src/docs/evaluation/travel_meals.txt",
+        "src/docs/evaluation/retry_budget.txt",
+        "src/docs/evaluation/serevin.txt",
+        "src/docs/evaluation/payload_validation.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 176.94946900155628
+    },
+    {
+      "id": "lex-04",
+      "category": "exact_lexical",
+      "query": "rivetctl replay --queue quarantine --dry-run",
+      "expected_source": "src/docs/evaluation/replay_command.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "rivetctl replay --queue quarantine --dry-run",
+        "rivetctl",
+        "replay",
+        "queue",
+        "quarantine",
+        "dry-run"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/replay_command.txt",
+        "src/docs/evaluation/archive_restore.txt",
+        "src/docs/evaluation/payload_validation.txt",
+        "src/docs/evaluation/queue_lease.txt",
+        "src/docs/evaluation/velora.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 197.772076999172
+    },
+    {
+      "id": "lex-05",
+      "category": "exact_lexical",
+      "query": "Velora",
+      "expected_source": "src/docs/evaluation/velora.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "Velora"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/velora.txt",
+        "src/docs/evaluation/replay_command.txt",
+        "src/docs/evaluation/payload_validation.txt",
+        "src/docs/evaluation/orinth_snapshot.txt",
+        "src/docs/evaluation/retry_budget.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 168.82126499876904
+    },
+    {
+      "id": "sem-01",
+      "category": "semantic",
+      "query": "How much can I get back for food when I stay away overnight for work?",
+      "expected_source": "src/docs/evaluation/travel_meals.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "How much can I get back for food when I stay away overnight for work?",
+        "How much can I get back for food",
+        "stay away overnight for work",
+        "food",
+        "back",
+        "get back"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/travel_meals.txt",
+        "src/docs/evaluation/queue_lease.txt",
+        "src/docs/evaluation/orinth_snapshot.txt",
+        "src/docs/evaluation/velora.txt",
+        "src/docs/evaluation/retry_budget.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 162.6754640001309
+    },
+    {
+      "id": "sem-02",
+      "category": "semantic",
+      "query": "I need extra privileges to investigate a live incident. Who approves them and when do they end?",
+      "expected_source": "src/docs/evaluation/temporary_access.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "I need extra privileges to investigate a live incident. Who approves them and when do they end?",
+        "extra privileges",
+        "live incident",
+        "investigate",
+        "approve",
+        "end"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/temporary_access.txt",
+        "src/docs/evaluation/replay_command.txt",
+        "src/docs/evaluation/queue_lease.txt",
+        "src/docs/evaluation/lost_laptop.txt",
+        "src/docs/evaluation/orinth_snapshot.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 170.26966599951265
+    },
+    {
+      "id": "sem-03",
+      "category": "semantic",
+      "query": "My work computer has disappeared. Should I tell someone now or wait until I have contacted the police?",
+      "expected_source": "src/docs/evaluation/lost_laptop.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "My work computer has disappeared. Should I tell someone now or wait until I have contacted the police?",
+        "work computer",
+        "disappeared",
+        "tell someone",
+        "police"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/lost_laptop.txt",
+        "src/docs/evaluation/temporary_access.txt",
+        "src/docs/evaluation/export_pin.txt",
+        "src/docs/evaluation/queue_lease.txt",
+        "src/docs/evaluation/velora.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 122.3957469992456
+    },
+    {
+      "id": "sem-04",
+      "category": "semantic",
+      "query": "Who helps a recent recruit find their way around during the first month?",
+      "expected_source": "src/docs/evaluation/new_hire_partner.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "Who helps a recent recruit find their way around during the first month?",
+        "recent recruit",
+        "first month",
+        "helps",
+        "find their way around",
+        "navigate"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/new_hire_partner.txt",
+        "src/docs/evaluation/temporary_access.txt",
+        "src/docs/evaluation/route_manifest.txt",
+        "src/docs/evaluation/meeting_recordings.txt",
+        "src/docs/evaluation/lost_laptop.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 163.55466300046828
+    },
+    {
+      "id": "sem-05",
+      "category": "semantic",
+      "query": "How long can we keep a video of an internal discussion, and can it be saved for teaching?",
+      "expected_source": "src/docs/evaluation/meeting_recordings.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "How long can we keep a video of an internal discussion, and can it be saved for teaching?",
+        "internal discussion",
+        "video",
+        "keep",
+        "save",
+        "teaching"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/meeting_recordings.txt",
+        "src/docs/evaluation/orinth_snapshot.txt",
+        "src/docs/evaluation/serevin.txt",
+        "src/docs/evaluation/velora.txt",
+        "src/docs/evaluation/export_pin.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 137.32955399973434
+    },
+    {
+      "id": "mix-01",
+      "category": "mixed",
+      "query": "Orinth reports still show yesterday's numbers. When should I escalate the delay?",
+      "expected_source": "src/docs/evaluation/orinth_snapshot.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "Orinth reports still show yesterday's numbers. When should I escalate the delay?",
+        "Orinth",
+        "delay",
+        "escalate",
+        "numbers",
+        "yesterday"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/orinth_snapshot.txt",
+        "src/docs/evaluation/queue_lease.txt",
+        "src/docs/evaluation/temporary_access.txt",
+        "src/docs/evaluation/replay_command.txt",
+        "src/docs/evaluation/velora.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 137.482452999393
+    },
+    {
+      "id": "mix-02",
+      "category": "mixed",
+      "query": "In connector-retry.toml, does max_attempts count the first request?",
+      "expected_source": "src/docs/evaluation/retry_budget.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "In connector-retry.toml, does max_attempts count the first request?",
+        "connector-retry.toml",
+        "max_attempts",
+        "first request"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/retry_budget.txt",
+        "src/docs/evaluation/payload_validation.txt",
+        "src/docs/evaluation/export_pin.txt",
+        "src/docs/evaluation/temporary_access.txt",
+        "src/docs/evaluation/new_hire_partner.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 147.19795699966198
+    },
+    {
+      "id": "mix-03",
+      "category": "mixed",
+      "query": "How can I use vaultctl restore to verify that archived attachments can be recovered without changing files?",
+      "expected_source": "src/docs/evaluation/archive_restore.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "How can I use vaultctl restore to verify that archived attachments can be recovered without changing files?",
+        "vaultctl restore",
+        "verify",
+        "archived attachments",
+        "recovered",
+        "vaultctl"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/archive_restore.txt",
+        "src/docs/evaluation/export_pin.txt",
+        "src/docs/evaluation/replay_command.txt",
+        "src/docs/evaluation/orinth_snapshot.txt",
+        "src/docs/evaluation/retry_budget.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 177.71766900114017
+    },
+    {
+      "id": "mix-04",
+      "category": "mixed",
+      "query": "An export deletion returns ARC_PIN_208. Who can allow it to be removed?",
+      "expected_source": "src/docs/evaluation/export_pin.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "An export deletion returns ARC_PIN_208. Who can allow it to be removed?",
+        "export deletion",
+        "ARC_PIN_208",
+        "remove",
+        "allow",
+        "export"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/export_pin.txt",
+        "src/docs/evaluation/temporary_access.txt",
+        "src/docs/evaluation/lost_laptop.txt",
+        "src/docs/evaluation/serevin.txt",
+        "src/docs/evaluation/meeting_recordings.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 146.70495700011088
+    },
+    {
+      "id": "mix-05",
+      "category": "mixed",
+      "query": "Can I keep a Serevin demonstration account alive longer without losing its example data?",
+      "expected_source": "src/docs/evaluation/serevin.txt",
+      "expansion_raised_unexpectedly": false,
+      "expansion_inputs": [
+        "Can I keep a Serevin demonstration account alive longer without losing its example data?",
+        "Serevin demonstration account",
+        "example data",
+        "keep alive",
+        "longer",
+        "data"
+      ],
+      "ranked_sources": [
+        "src/docs/evaluation/serevin.txt",
+        "src/docs/evaluation/orinth_snapshot.txt",
+        "src/docs/evaluation/archive_restore.txt",
+        "src/docs/evaluation/meeting_recordings.txt",
+        "src/docs/evaluation/export_pin.txt"
+      ],
+      "expected_source_rank": 1,
+      "hit_at_5": 1,
+      "reciprocal_rank": 1.0,
+      "latency_ms": 151.42925899999682
+    }
+  ],
+  "aggregate": {
+    "all": {
+      "query_count": 15,
+      "hit_at_5": 1,
+      "mrr_at_5": 1.0,
+      "latency_ms": {
+        "mean": 155.45458706656063,
+        "median": 162.6754640001309,
+        "p95": 197.772076999172
+      }
+    },
+    "by_category": {
+      "exact_lexical": {
+        "query_count": 5,
+        "hit_at_5": 1,
+        "mrr_at_5": 1.0,
+        "latency_ms": {
+          "mean": 163.01228339980298,
+          "median": 172.7247670005454,
+          "p95": 197.772076999172
+        }
+      },
+      "mixed": {
+        "query_count": 5,
+        "hit_at_5": 1,
+        "mrr_at_5": 1.0,
+        "latency_ms": {
+          "mean": 152.10645900006057,
+          "median": 147.19795699966198,
+          "p95": 177.71766900114017
+        }
+      },
+      "semantic": {
+        "query_count": 5,
+        "hit_at_5": 1,
+        "mrr_at_5": 1.0,
+        "latency_ms": {
+          "mean": 151.24501879981835,
+          "median": 162.6754640001309,
+          "p95": 170.26966599951265
+        }
+      }
+    }
+  },
+  "comparison_to_vector": {
+    "all": {
+      "vector_hit_at_5": 1,
+      "hybrid_hit_at_5": 1,
+      "hit_at_5_delta": 0,
+      "vector_mrr_at_5": 1.0,
+      "hybrid_mrr_at_5": 1.0,
+      "mrr_at_5_delta": 0.0,
+      "vector_mean_latency_ms": 10.945479599953009,
+      "hybrid_mean_latency_ms": 155.45458706656063
+    },
+    "by_category": {
+      "exact_lexical": {
+        "vector_hit_at_5": 1,
+        "hybrid_hit_at_5": 1,
+        "hit_at_5_delta": 0,
+        "vector_mrr_at_5": 1.0,
+        "hybrid_mrr_at_5": 1.0,
+        "mrr_at_5_delta": 0.0,
+        "vector_mean_latency_ms": 9.420269000111148,
+        "hybrid_mean_latency_ms": 163.01228339980298
+      },
+      "mixed": {
+        "vector_hit_at_5": 1,
+        "hybrid_hit_at_5": 1,
+        "hit_at_5_delta": 0,
+        "vector_mrr_at_5": 1.0,
+        "hybrid_mrr_at_5": 1.0,
+        "mrr_at_5_delta": 0.0,
+        "vector_mean_latency_ms": 11.8371667998872,
+        "hybrid_mean_latency_ms": 152.10645900006057
+      },
+      "semantic": {
+        "vector_hit_at_5": 1,
+        "hybrid_hit_at_5": 1,
+        "hit_at_5_delta": 0,
+        "vector_mrr_at_5": 1.0,
+        "hybrid_mrr_at_5": 1.0,
+        "mrr_at_5_delta": 0.0,
+        "vector_mean_latency_ms": 11.579002999860677,
+        "hybrid_mean_latency_ms": 151.24501879981835
+      }
+    },
+    "queries": [
+      {
+        "id": "lex-01",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "lex-02",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "lex-03",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "lex-04",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "lex-05",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "sem-01",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "sem-02",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "sem-03",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "sem-04",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "sem-05",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "mix-01",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "mix-02",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "mix-03",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "mix-04",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      },
+      {
+        "id": "mix-05",
+        "vector_expected_source_rank": 1,
+        "hybrid_expected_source_rank": 1,
+        "rank_outcome": "unchanged",
+        "recovered_miss": false,
+        "new_miss": false
+      }
+    ],
+    "rank_protocol": "A missing TOP_K source is worse than every visible rank; lower is better."
+  }
+}
