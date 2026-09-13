@@ -1,5 +1,6 @@
 import faiss
 from contextlib import contextmanager
+import hashlib
 import logging
 import os
 import sys
@@ -19,6 +20,15 @@ logger = logging.getLogger(__name__)
 # Published legacy defaults, used only for post-publication cleanup.
 _LEGACY_CHUNKS_PATH = "chunks.pkl"
 _LEGACY_FTS_DB_PATH = "fts_index.db"
+
+
+def _sha256_file(path: Path) -> str:
+    """Hash the exact written artifact without loading it all into memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 @contextmanager
@@ -74,8 +84,9 @@ def build_index():
         _staged_artifact(rag_path) as staged_rag,
     ):
         faiss.write_index(index, str(staged_index))
+        faiss_sha256 = _sha256_file(staged_index)
         print("📦 Creating chunk database and FTS index...")
-        build_rag_db(chunks, staged_rag)
+        build_rag_db(chunks, staged_rag, faiss_sha256=faiss_sha256)
 
         # Publish only after every artifact has been constructed successfully.
         # Each replacement is atomic; the two replacements are not a transaction.

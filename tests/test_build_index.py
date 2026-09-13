@@ -1,5 +1,6 @@
 from contextlib import chdir, closing, ExitStack, redirect_stdout
 import ast
+import hashlib
 import importlib.util
 import io
 from pathlib import Path
@@ -66,12 +67,23 @@ class BuildIndexTests(unittest.TestCase):
         self.old_chunks = [
             {"text": "old background", "source": "old.txt", "chunk_id": 7},
             {"text": "oldneedle", "source": "old.txt", "chunk_id": 8},
+            {"text": "previous appendix", "source": "old.txt", "chunk_id": 9},
         ]
         index = faiss.IndexFlatIP(2)
-        index.add(np.array([[-1, 0], [0, -1]], dtype="float32"))
+        index.add(np.array([[-1, 0], [0, -1], [-0.6, -0.8]], dtype="float32"))
         faiss.write_index(index, str(self.directory / "index.faiss"))
         self.seed_legacy_files()
-        self.store.build_rag_db(self.old_chunks, self.rag_path)
+        self.old_metadata = {
+            "faiss_sha256": hashlib.sha256(
+                (self.directory / "index.faiss").read_bytes()
+            ).hexdigest(),
+            "chunk_count": len(self.old_chunks),
+        }
+        self.store.build_rag_db(
+            self.old_chunks, self.rag_path,
+            faiss_sha256=self.old_metadata["faiss_sha256"],
+        )
+        self.assertEqual(self.store.load_generation_metadata(self.rag_path), self.old_metadata)
         self.assert_rag_contents(self.rag_path, self.old_chunks)
         self.assertEqual(self.fts.search_fts("oldneedle"), [1])
         return self.artifact_bytes()
@@ -104,6 +116,7 @@ class BuildIndexTests(unittest.TestCase):
 
     def assert_old_generation_unchanged(self, before):
         self.assertEqual(self.artifact_bytes(), before)
+        self.assertEqual(self.store.load_generation_metadata(self.rag_path), self.old_metadata)
         self.assert_rag_contents(self.rag_path, self.old_chunks)
         self.assertEqual(self.fts.search_fts("oldneedle"), [1])
         self.assertEqual(self.fts.search_fts("newneedle"), [])
@@ -127,6 +140,11 @@ class BuildIndexTests(unittest.TestCase):
                     {staged_index, staged_rag},
                 )
                 self.assertEqual(faiss.read_index(str(staged_index)).ntotal, len(self.chunks))
+                self.assertEqual(Path(source), staged_index)
+                self.assertEqual(self.store.load_generation_metadata(staged_rag), {
+                    "faiss_sha256": hashlib.sha256(staged_index.read_bytes()).hexdigest(),
+                    "chunk_count": len(self.chunks),
+                })
                 self.assertEqual(self.fts.search_fts("newneedle", db_path=staged_rag), [0])
                 self.assert_rag_contents(staged_rag, self.chunks)
             self.assertEqual(Path(source).parent, Path(destination).parent)
@@ -147,6 +165,14 @@ class BuildIndexTests(unittest.TestCase):
         self.assertIs(self.embed.call_args.args[0], self.chunks)
         self.build_rag.assert_called_once()
         self.assertIs(self.build_rag.call_args.args[0], self.chunks)
+        published_sha = hashlib.sha256(
+            (self.directory / "index.faiss").read_bytes()
+        ).hexdigest()
+        self.assertEqual(self.build_rag.call_args.kwargs, {"faiss_sha256": published_sha})
+        self.assertEqual(self.store.load_generation_metadata(self.rag_path), {
+            "faiss_sha256": published_sha,
+            "chunk_count": len(self.chunks),
+        })
         staged_rag = self.build_rag.call_args.args[1]
         self.assertEqual(staged_rag.parent, self.rag_path.parent)
         self.assertNotEqual(staged_rag, self.rag_path)
@@ -168,6 +194,43 @@ class BuildIndexTests(unittest.TestCase):
             {path.name for path in self.directory.iterdir()},
             {"index.faiss", "rag.db"},
         )
+
+    def test_construction_completes_in_order_before_publication(self):
+        events = []
+        write_index = self.builder.faiss.write_index
+        sha256_file = self.builder._sha256_file
+        replace = self.builder.os.replace
+
+        def write(index, path):
+            write_index(index, path)
+            events.append("write complete")
+
+        def hash_staged(path):
+            self.assertEqual(events, ["write complete"])
+            digest = sha256_file(path)
+            events.append("hash complete")
+            return digest
+
+        def build_rag(chunks, path, *, faiss_sha256):
+            self.assertEqual(events, ["write complete", "hash complete"])
+            self.store.build_rag_db(chunks, path, faiss_sha256=faiss_sha256)
+            events.append("rag complete")
+
+        def publish(source, destination):
+            self.assertEqual(events[:3], ["write complete", "hash complete", "rag complete"])
+            replace(source, destination)
+            events.append("replace")
+
+        self.build_rag.side_effect = build_rag
+        with (
+            patch.object(self.builder.faiss, "write_index", side_effect=write),
+            patch.object(self.builder, "_sha256_file", side_effect=hash_staged),
+            patch.object(self.builder.os, "replace", side_effect=publish),
+        ):
+            self.builder.build_index()
+        self.assertEqual(events, [
+            "write complete", "hash complete", "rag complete", "replace", "replace",
+        ])
 
     def test_clean_first_build_never_generates_pickle(self):
         source = Path(self.builder.__spec__.origin).read_text()
@@ -250,6 +313,13 @@ class BuildIndexTests(unittest.TestCase):
 
                 def publish(source, destination):
                     self.assert_legacy_unchanged()
+                    if replacements.call_count == 1:
+                        staged_sha = hashlib.sha256(Path(source).read_bytes()).hexdigest()
+                        self.assertEqual(self.build_rag.call_args.kwargs,
+                                         {"faiss_sha256": staged_sha})
+                        self.assertEqual(self.store.load_generation_metadata(
+                            self.build_rag.call_args.args[1]
+                        ), {"faiss_sha256": staged_sha, "chunk_count": len(self.chunks)})
                     if replacements.call_count == failed_operation:
                         raise error
                     replace(source, destination)
@@ -265,6 +335,7 @@ class BuildIndexTests(unittest.TestCase):
                 self.assertEqual({path.name for path in self.directory.iterdir()},
                                  set(before) | {path.name for path in self.legacy_paths})
                 self.assertEqual(self.rag_path.read_bytes(), before["rag.db"])
+                self.assertEqual(self.store.load_generation_metadata(self.rag_path), self.old_metadata)
                 if failed_operation == 1:
                     self.assert_old_generation_unchanged(before)
                 else:
@@ -272,24 +343,32 @@ class BuildIndexTests(unittest.TestCase):
                     self.assertEqual(index.ntotal, len(self.chunks))
                     self.assertNotEqual((self.directory / "index.faiss").read_bytes(),
                                         before["index.faiss"])
+                    published_sha = hashlib.sha256(
+                        (self.directory / "index.faiss").read_bytes()
+                    ).hexdigest()
+                    self.assertEqual(published_sha, self.build_rag.call_args.kwargs["faiss_sha256"])
+                    self.assertNotEqual(published_sha, self.old_metadata["faiss_sha256"])
+                    self.assertEqual(index.ntotal, self.old_metadata["chunk_count"])
+                    self.assert_rag_contents(self.rag_path, self.old_chunks)
                 self.assertNotIn("Indexing complete", self.output.getvalue())
 
     def test_rag_build_failure_preserves_old_generation_and_cleans_staging(self):
         before = self.seed_old_generation()
         error = sqlite3.OperationalError("rag.db build failed")
 
-        def fail_rag(chunks, db_path):
+        def fail_rag(chunks, db_path, *, faiss_sha256):
             self.assertIs(chunks, self.chunks)
             self.assertNotEqual(db_path, self.rag_path)
             self.assertEqual(db_path.parent, self.rag_path.parent)
             staged_index, = self.directory.glob(".index.faiss.*.tmp")
             self.assertEqual(faiss.read_index(str(staged_index)).ntotal, len(self.chunks))
+            self.assertEqual(faiss_sha256, hashlib.sha256(staged_index.read_bytes()).hexdigest())
             self.assertEqual(self.artifact_bytes(), before)
             self.assert_legacy_unchanged()
             # Fail inside the real SQLite transaction, after inserting chunks.
             with patch.object(self.store, "_rebuild_fts", side_effect=error):
                 try:
-                    self.store.build_rag_db(chunks, db_path)
+                    self.store.build_rag_db(chunks, db_path, faiss_sha256=faiss_sha256)
                 finally:
                     for suffix in ("-journal", "-wal", "-shm"):
                         Path(str(db_path) + suffix).write_bytes(b"partial SQLite data")
@@ -303,6 +382,50 @@ class BuildIndexTests(unittest.TestCase):
         self.assertIs(raised.exception, error)
         replacements.assert_not_called()
         self.build_rag.assert_called_once()
+        self.assert_old_generation_unchanged(before)
+        self.assertNotIn("Indexing complete", self.output.getvalue())
+
+    def test_hash_failure_preserves_old_generation_and_cleans_staging(self):
+        before = self.seed_old_generation()
+        error = OSError("staged FAISS hash failed")
+
+        def fail_hash(path):
+            self.assertNotEqual(path, self.directory / "index.faiss")
+            self.assertEqual(faiss.read_index(str(path)).ntotal, len(self.chunks))
+            self.assertEqual(self.artifact_bytes(), before)
+            staged_rag, = self.directory.glob(".rag.db.*.tmp")
+            for suffix in ("-journal", "-wal", "-shm"):
+                Path(str(staged_rag) + suffix).write_bytes(b"staging cleanup sentinel")
+            raise error
+
+        with (
+            patch.object(self.builder, "_sha256_file", side_effect=fail_hash) as hashing,
+            patch.object(self.builder.os, "replace") as replacements,
+            patch.object(Path, "unlink", autospec=True, side_effect=Path.unlink) as unlink,
+            self.assertRaises(OSError) as raised,
+        ):
+            self.builder.build_index()
+        self.assertIs(raised.exception, error)
+        hashing.assert_called_once()
+        self.build_rag.assert_not_called()
+        replacements.assert_not_called()
+        self.assertTrue(all(call.args[0].resolve() not in self.legacy_paths
+                            for call in unlink.call_args_list))
+        self.assert_old_generation_unchanged(before)
+        self.assertNotIn("Indexing complete", self.output.getvalue())
+
+    def test_metadata_failure_preserves_old_generation_and_cleans_staging(self):
+        before = self.seed_old_generation()
+        error = sqlite3.OperationalError("generation metadata insert failed")
+        with (
+            patch.object(self.store, "_insert_generation_metadata", side_effect=error),
+            patch.object(self.builder.os, "replace") as replacements,
+            self.assertRaises(sqlite3.OperationalError) as raised,
+        ):
+            self.builder.build_index()
+        self.assertIs(raised.exception, error)
+        self.build_rag.assert_called_once()
+        replacements.assert_not_called()
         self.assert_old_generation_unchanged(before)
         self.assertNotIn("Indexing complete", self.output.getvalue())
 
@@ -332,6 +455,21 @@ class BuildIndexTests(unittest.TestCase):
                 replacements.assert_not_called()
             self.assert_old_generation_unchanged(before)
         self.build_rag.assert_not_called()
+
+    def test_hash_failure_on_first_build_publishes_nothing(self):
+        self.seed_legacy_files()
+        error = OSError("first staged FAISS hash failed")
+        with (
+            patch.object(self.builder, "_sha256_file", side_effect=error),
+            patch.object(self.builder.os, "replace") as replacements,
+            self.assertRaises(OSError) as raised,
+        ):
+            self.builder.build_index()
+        self.assertIs(raised.exception, error)
+        self.build_rag.assert_not_called()
+        replacements.assert_not_called()
+        self.assert_legacy_unchanged()
+        self.assertEqual(set(self.directory.iterdir()), set(self.legacy_paths))
 
     def test_rag_failure_on_first_build_publishes_nothing(self):
         self.seed_legacy_files()
