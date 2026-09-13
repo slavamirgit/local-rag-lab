@@ -8,11 +8,7 @@ venv/
 env/
 ENV/
 
-# FAISS index and chunks
-*.faiss
-index.faiss
-*.pkl
-chunks.pkl
+# Generated retrieval artifacts and legacy leftovers use the root .gitignore.
 
 # IDE
 .vscode/

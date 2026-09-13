@@ -52,8 +52,8 @@ From the repository root, using the project virtual environment and its cached
 `all-MiniLM-L6-v2` model:
 
 ```bash
-HF_HUB_OFFLINE=1 .venv/bin/python bench/vector_baseline.py --dataset challenge --output /tmp/local-rag-challenge-repeat.json
-HF_HUB_OFFLINE=1 .venv/bin/python bench/vector_baseline.py --dataset sanity --output /tmp/local-rag-sanity-repeat.json
+HF_HUB_OFFLINE=1 .venv/bin/python bench/vector_baseline.py --dataset challenge --output bench/.runtime/storage-regression/vector-challenge.json
+HF_HUB_OFFLINE=1 .venv/bin/python bench/vector_baseline.py --dataset sanity --output bench/.runtime/storage-regression/vector-sanity.json
 ```
 
 The project dependencies in `src/requirements.txt` must be installed. Offline
@@ -62,10 +62,11 @@ On a fresh installation, omit `HF_HUB_OFFLINE=1` to permit the normal model
 download. Match the package versions and model revision recorded in the result
 metadata when reproducing this measurement.
 
-Use `--output` for subsequent measurements to preserve the frozen result files.
-Without it, the runner writes the selected dataset's recorded-result path shown
-in the table. Omitting `--dataset` selects sanity, preserving the original CLI
-default. The original sanity result retains the historical runner fingerprint;
+Fresh benchmark runs require an explicit `--output`. Never target retained
+`bench/results/*.json` files; use a new candidate path such as those above.
+The four retained vector/hybrid result files are immutable historical references.
+Omitting `--dataset` selects sanity, preserving the original CLI default.
+The original sanity result retains the historical runner fingerprint;
 the challenge result fingerprints the shared runner after dataset selection was
 added. The original result was not regenerated during this addition.
 
@@ -77,14 +78,16 @@ PyTorch uses one CPU thread to reduce run-to-run scheduling variation. The model
 chunking, TOP_K=5, normalization, and FAISS IndexFlatIP behavior are unchanged.
 The script never calls answer generation or Ollama.
 
-Current production index construction also builds an FTS index from the same
-ordered chunks. Benchmark rebuilds write `index.faiss`, `chunks.pkl`, and
-`fts_index.db` to `bench/.runtime/<dataset>/`, where dataset is `sanity` or
+Current production index construction builds generated chunks and an
+external-content FTS5 index in `rag.db` from the same ordered chunks as FAISS.
+Benchmark rebuilds write `index.faiss` and `rag.db` to
+`bench/.runtime/<dataset>/`, where dataset is `sanity` or
 `challenge`. Measured retrieval remains vector-only through `rag.query.retrieve_vector`;
 the runner does not call FTS search, Query Expansion, or RRF.
-They remain ignored, disposable build products and are separate from each other
-and the normal application index. Earlier sanity artifacts may remain directly
-under `bench/.runtime/`; the shared runner does not use them. It verifies exactly
+These artifacts remain ignored, disposable build products; each dataset's index
+is separate from the other dataset and the normal application index.
+Earlier sanity artifacts may remain directly under `bench/.runtime/`; the shared
+runner does not use them. It verifies exactly
 one chunk per source. Sanity documents contain 57–75 cl100k_base tokens and
 challenge documents contain 67–78, below the current 700-token chunk size and
 600-token step (100-token overlap).
@@ -157,8 +160,8 @@ and rechecks hashes before saving. Existing output files are never overwritten;
 use a new `--output` path for later runs.
 
 Production `build_index()` rebuilds the selected corpus in
-`bench/.runtime/<dataset>/` with all three isolated artifacts. The runner uses
-the same sorted document order, zero seeds, and one PyTorch CPU thread as the
+`bench/.runtime/<dataset>/` with isolated `index.faiss` and `rag.db` artifacts.
+The runner uses the same sorted document order, zero seeds, and one PyTorch CPU thread as the
 vector benchmark. It calls only production `rag.query.retrieve()` for rankings;
 it does not reconstruct retrieval or call answer generation. A transparent
 wrapper records each real expansion return value unchanged, without a second
@@ -169,18 +172,12 @@ Use the cached embedding model and the configured local Ollama `qwen3:0.6b`
 model. `HF_HUB_OFFLINE=1` applies to Hugging Face; Ollama still runs locally. A
 read-only `/api/tags` check confirms the configured model is available before
 measurement. If a sandbox blocks localhost, rerun the unchanged command with
-permitted local network access. The original first-run commands were:
+permitted local network access. Fresh runs require an explicit `--output` to a
+new candidate path outside retained `bench/results/*.json` files:
 
 ```bash
-HF_HUB_OFFLINE=1 .venv/bin/python bench/hybrid_benchmark.py --dataset sanity
-HF_HUB_OFFLINE=1 .venv/bin/python bench/hybrid_benchmark.py --dataset challenge
-```
-
-Those paths now contain retained results, so reproduce to new paths instead:
-
-```bash
-HF_HUB_OFFLINE=1 .venv/bin/python bench/hybrid_benchmark.py --dataset sanity --output /tmp/local-rag-hybrid-sanity-repeat.json
-HF_HUB_OFFLINE=1 .venv/bin/python bench/hybrid_benchmark.py --dataset challenge --output /tmp/local-rag-hybrid-challenge-repeat.json
+HF_HUB_OFFLINE=1 .venv/bin/python bench/hybrid_benchmark.py --dataset sanity --output bench/.runtime/storage-regression/hybrid-sanity.json
+HF_HUB_OFFLINE=1 .venv/bin/python bench/hybrid_benchmark.py --dataset challenge --output bench/.runtime/storage-regression/hybrid-challenge.json
 ```
 
 Hybrid latency times the complete `retrieve()` call, including real Query
@@ -248,24 +245,31 @@ lists, expected-source ranks, overall Hit@5/MRR@5, and category Hit@5/MRR@5.
 Latency was not required to match. This is an observed repeat on the recorded
 model/environment, not a guarantee of determinism on other installations.
 
-After running the two temporary repeats above, reproduce the comparison with:
+## Strict storage regression comparison
+
+After producing all four candidates with the commands above, compare them with
+the immutable references `bench/results/vector-baseline.json`,
+`bench/results/vector-challenge-baseline.json`, `bench/results/hybrid-sanity.json`,
+and `bench/results/hybrid-challenge.json`:
 
 ```bash
-.venv/bin/python - <<'PYCODE'
-import json
-from pathlib import Path
-for dataset in ('sanity', 'challenge'):
-    first = json.loads(Path(f'bench/results/hybrid-{dataset}.json').read_text())
-    repeat = json.loads(Path(f'/tmp/local-rag-hybrid-{dataset}-repeat.json').read_text())
-    assert first['metadata']['input_sha256'] == repeat['metadata']['input_sha256']
-    assert [q['id'] for q in first['queries']] == [q['id'] for q in repeat['queries']]
-    for key in ('expansion_inputs', 'ranked_sources', 'expected_source_rank'):
-        changed = [a['id'] for a, b in zip(first['queries'], repeat['queries']) if a[key] != b[key]]
-        print(dataset, key, 'identical' if not changed else changed)
-    for key in ('hit_at_5', 'mrr_at_5'):
-        print(dataset, key, first['aggregate']['all'][key], repeat['aggregate']['all'][key])
-        for category in first['aggregate']['by_category']:
-            print(dataset, category, key, first['aggregate']['by_category'][category][key],
-                  repeat['aggregate']['by_category'][category][key])
-PYCODE
+.venv/bin/python bench/storage_regression.py \
+  --vector-sanity bench/.runtime/storage-regression/vector-sanity.json \
+  --vector-challenge bench/.runtime/storage-regression/vector-challenge.json \
+  --hybrid-sanity bench/.runtime/storage-regression/hybrid-sanity.json \
+  --hybrid-challenge bench/.runtime/storage-regression/hybrid-challenge.json
 ```
+
+All four comparisons require exact equality of:
+
+- ordered query IDs;
+- per-query `ranked_sources`, `expected_source_rank`, `hit_at_5`, and `reciprocal_rank`;
+- overall Hit@5 and MRR@5;
+- category Hit@5 and MRR@5.
+
+Hybrid comparisons additionally require identical per-query `expansion_inputs`.
+Latency equality is not required. Investigate ranking differences as storage
+regressions unless an independently identified storage bug proves otherwise;
+do not tune retrieval settings, prompts, inputs, labels, or fixtures to restore
+the historical metrics. Keep candidate measurements separate from the four
+retained references and use new output paths for subsequent runs.

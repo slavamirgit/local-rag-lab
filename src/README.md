@@ -8,7 +8,7 @@ A local Q&A system using hybrid RAG (Retrieval-Augmented Generation), Ollama's
 - Recursive ingestion of `.txt`, `.md`, `.pdf`, and `.docx` documents.
 - Token chunking with tiktoken (`cl100k_base`), 700 tokens per chunk and 100-token overlap.
 - SentenceTransformers embeddings and FAISS semantic search.
-- Persistent SQLite FTS5 lexical search over the same chunks.
+- Generated chunk storage and persistent SQLite FTS5 lexical search in `rag.db`.
 - Local Qwen Query Expansion, parallel vector/FTS searches, and Reciprocal Rank Fusion.
 - Retrieval fallback when expansion or an individual search branch fails.
 - Local answer generation with source attribution and optional MCP document access.
@@ -61,8 +61,9 @@ local-rag-lab/
     │   ├── ingest.py         # Recursive document ingestion
     │   ├── chunk.py          # Token chunking
     │   ├── embed.py          # SentenceTransformers embeddings
-    │   ├── build_index.py    # Build FAISS, chunk mapping, and FTS artifacts
-    │   ├── fts.py            # SQLite FTS5 construction and lexical search
+    │   ├── build_index.py    # Build and publish index.faiss and rag.db
+    │   ├── store.py          # SQLite chunk/FTS construction and chunk loading
+    │   ├── fts.py            # SQLite FTS5 lexical search
     │   ├── query_expansion.py # Local Qwen search-term extraction and fallback
     │   ├── fusion.py         # Deterministic Reciprocal Rank Fusion
     │   └── query.py          # Hybrid retrieval, vector helper, prompt/answer helpers
@@ -71,8 +72,7 @@ local-rag-lab/
     │   └── client.py         # MCP subprocess client
     ├── docs/                 # Default source document directory
     ├── index.faiss           # Generated vector index
-    ├── chunks.pkl            # Generated ordered chunk dictionaries
-    ├── fts_index.db          # Generated lexical index (with src as cwd)
+    ├── rag.db                # Generated chunks and FTS5 (with src as cwd)
     ├── requirements.txt
     ├── COMMANDS.md
     └── README.md
@@ -81,44 +81,50 @@ local-rag-lab/
 ## Indexing and path resolution
 
 `build-index` loads documents, creates token chunks, generates embeddings, and
-builds FAISS and SQLite FTS5 indexes from the same ordered chunk set. The three
-generated artifacts are `index.faiss`, `chunks.pkl`, and `fts_index.db`.
-FTS row IDs map back to positions in `chunks.pkl`, matching FAISS positions;
-the per-document `chunk_id` field is not a globally unique index ID. Source
-files remain the canonical documents.
+builds both artifacts from the same ordered chunk set: `index.faiss` and `rag.db`.
+FAISS remains separate; `rag.db` stores the generated `chunks` table and an
+external-content FTS5 `chunks_fts` index over `chunks.text`. Source documents
+remain canonical source data, and both artifacts are derived and rebuildable.
+Global retrieval IDs are zero-based `0..N-1`, with
+`FAISS vector position == chunks.id == chunks_fts.rowid`. The `chunk_id` field
+remains the per-source-document ordinal.
 
-Relative `FAISS_INDEX_PATH` and `CHUNKS_PATH` values resolve relative to `src`.
-`DOCUMENTS_DIR` and `FTS_INDEX_PATH` use normal `Path` semantics: relative values
+Relative `FAISS_INDEX_PATH` values resolve relative to `src`.
+`DOCUMENTS_DIR` and `RAG_DB_PATH` use normal `Path` semantics: relative values
 resolve from the current working directory. Absolute paths remain absolute.
 Running builds and the application from `src` keeps the default documents and
-all three artifacts in the locations shown above.
+both artifacts in the locations shown above.
 
-Readiness can attempt an automatic build if chunks or FAISS cannot be loaded.
-**An installation with old FAISS/chunks artifacts must run `build-index` again
-to create `fts_index.db`.** A missing FTS index alone does not trigger that
-rebuild; lexical search logs its failure and retrieval uses available vector
-results. Rebuild after adding or updating documents, then restart a running
-assistant so it loads the rebuilt artifacts.
+Readiness can attempt an automatic build if SQLite chunks or FAISS cannot be
+loaded. FTS failures with readable chunk storage allow vector fallback.
+Run `build-index` to rebuild both artifacts after adding or updating documents,
+then restart a running assistant so it loads the rebuilt artifacts.
+
+**Migration note:** `chunks.pkl` and standalone `fts_index.db` are obsolete
+generated artifacts ignored by runtime. A build attempts to delete them
+best-effort only after both new artifacts are successfully published; cleanup
+failures may leave them on disk without affecting retrieval.
 
 ## Retrieval and answer flow
 
 1. `retrieve(query)` asks the configured local Qwen model for a bounded set of
-   search terms. The original query is retained; unusable output, timeout, or
-   model failure falls back to that query alone.
+   search terms. The original query is retained; malformed or empty output,
+   timeout, or model failure falls back to that query alone.
 2. Shared artifact readiness loads/rebuilds artifacts before parallel searches.
 3. Two searches run concurrently: vector search embeds the **original
    natural-language query**, and FTS5 searches the **original query plus expansion
    terms**, returning candidates ordered by BM25 with deterministic tie-breaking.
-4. RRF combines the candidate rankings using equal weights and one-based ranks,
-   summing `1 / (RRF_K + rank)` for each chunk. Ties use chunk position.
+4. RRF behavior is unchanged: it combines rankings using equal weights and
+   one-based ranks, summing `1 / (RRF_K + rank)` for each chunk. Ties use chunk position.
 5. Retrieval returns up to `TOP_K` dictionaries containing `text`, `source`, and
-   `chunk_id`. If one branch fails or is empty, the other can supply contexts;
+   `chunk_id`, loaded from `rag.db` into the existing in-memory cache. If one
+   branch fails or is empty, the other can supply contexts from readable chunks;
    if neither supplies usable results, retrieval returns an empty list.
 6. The existing assistant decides whether to use MCP tools, builds the context
    prompt, appends any tool output, and asks Ollama for the final answer.
 
-`rag.query.retrieve(query)` is the **production hybrid path** used by the
-application. `rag.query.retrieve_vector(query, limit=None)` is a **vector-only
+`rag.query.retrieve(query: str) -> list[dict]` is the **production hybrid path**
+used by the application. `rag.query.retrieve_vector(query, limit=None)` is a **vector-only
 helper for reproduction/benchmarking**, defaulting to `TOP_K`. It shares the
 vector implementation but does not call Query Expansion, FTS search, or RRF.
 
@@ -133,8 +139,8 @@ Edit [config.py](config.py); current defaults are:
 | `EMBEDDING_MODEL` | `"all-MiniLM-L6-v2"` | SentenceTransformers model |
 | `OLLAMA_MODEL` | `"qwen3:0.6b"` | Expansion, MCP decisions, and final answers |
 | `OLLAMA_URL` | `"http://localhost:11434/api/generate"` | Expansion and answer HTTP endpoint |
-| `FAISS_INDEX_PATH` / `CHUNKS_PATH` | `"index.faiss"` / `"chunks.pkl"` | Paths relative to src when not absolute |
-| `FTS_INDEX_PATH` | `"fts_index.db"` | Lexical index path, relative to cwd when not absolute |
+| `FAISS_INDEX_PATH` | `"index.faiss"` | Vector index path, relative to src when not absolute |
+| `RAG_DB_PATH` | `"rag.db"` | Generated chunks and FTS5 path, relative to cwd when not absolute |
 | `TOP_K` | `5` | Maximum final chunks |
 | `VECTOR_CANDIDATES` / `FTS_CANDIDATES` | `20` / `20` | Candidate depths before fusion |
 | `RRF_K` | `60` | RRF rank constant |
@@ -153,7 +159,7 @@ resolve outside that root, including sibling-prefix paths and symlink escapes.
 ## Troubleshooting
 
 - **Missing/stale indexes or FTS failures:** from `src`, run
-  `../.venv/bin/python main.py build-index`. Check all three artifact paths,
+  `../.venv/bin/python main.py build-index`. Check both artifact paths,
   permissions, and SQLite FTS5 availability. Restart the assistant after rebuilding.
 - **Ollama not responding:** ensure the service is running, check `ollama list`,
   and install `qwen3:0.6b` with `ollama pull qwen3:0.6b`. Check `OLLAMA_URL` for

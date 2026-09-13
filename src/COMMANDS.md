@@ -51,8 +51,9 @@ This loads documents recursively, splits them into 700-token chunks with
 100-token overlap, generates embeddings, and builds:
 
 - `index.faiss`: FAISS vector index.
-- `chunks.pkl`: ordered chunk dictionaries shared by vector and lexical retrieval.
-- `fts_index.db`: SQLite FTS5 index over the same chunk text.
+- `rag.db`: generated chunk dictionaries and an external-content SQLite FTS5 index.
+
+Both artifacts are built from the same ordered chunk set.
 
 The equivalent direct build command, **while in `src`**, is:
 
@@ -60,14 +61,13 @@ The equivalent direct build command, **while in `src`**, is:
 ../.venv/bin/python -m rag.build_index
 ```
 
-An installation with old FAISS/chunks artifacts **must run `build-index` again**
-to create `fts_index.db`. Readiness may build when chunks or FAISS cannot be
-loaded, but a missing FTS index alone does not trigger a rebuild.
+Use this build command to rebuild both artifacts. Readiness may also attempt a
+build when SQLite chunks or FAISS cannot be loaded.
 
-Relative `FAISS_INDEX_PATH` and `CHUNKS_PATH` values resolve relative to `src`.
-`DOCUMENTS_DIR` (default `./docs`) and `FTS_INDEX_PATH` (default `fts_index.db`)
+Relative `FAISS_INDEX_PATH` values resolve relative to `src`.
+`DOCUMENTS_DIR` (default `./docs`) and `RAG_DB_PATH` (default `rag.db`)
 resolve relative to the current working directory when not absolute. With
-`src` as cwd, the defaults put all three artifacts beside `main.py`.
+`src` as cwd, the defaults put both artifacts beside `main.py`.
 See [README.md](README.md#configuration) for all current configuration defaults.
 
 ## Run the interactive application
@@ -102,12 +102,14 @@ From the **repository root** (run `cd ..` first if currently in `src`):
 
 For benchmark methodology and reproduction commands, see
 [../bench/README.md](../bench/README.md). Benchmark commands run from the repository
-root; use new output paths to preserve the retained result JSON files.
+root; an explicit `--output` is required. Use new paths outside retained
+`bench/results/*.json`, such as `bench/.runtime/storage-regression/`, then compare
+candidates with `bench/storage_regression.py` as documented there.
 
 ## Troubleshooting
 
 - **No documents found:** check `DOCUMENTS_DIR` and run the build from `src`.
-- **Missing FTS index or vector-only results after upgrading:** rebuild all three
+- **Missing indexes or vector-only results:** rebuild both
   artifacts with the build command above. Check warnings, path permissions,
   and SQLite FTS5 support if lexical search remains unavailable.
 - **Ollama connection errors:** ensure the service is running, use `ollama list`

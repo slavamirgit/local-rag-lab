@@ -15,9 +15,8 @@ normalized and stored in a FAISS `IndexFlatIP` index. SQLite FTS5 indexes the
 text of the same ordered chunks.
 
 ```text
-Documents → token chunks ─┬→ embeddings → FAISS
-                         ├→ chunk dictionaries (chunks.pkl)
-                         └→ SQLite FTS5
+Documents → token chunks ─┬→ embeddings → FAISS (index.faiss)
+                         └→ SQLite chunks + FTS5 (rag.db)
 
 User query
     ↓
@@ -36,15 +35,17 @@ Shared artifact readiness (load/rebuild before parallel searches)
                                  Context prompt → Ollama → answer
 ```
 
-`rag.query.retrieve(query)` is the production hybrid retrieval interface. Query
-Expansion extracts a bounded set of search terms; malformed output, empty
+`rag.query.retrieve(query: str) -> list[dict]` is the production hybrid retrieval
+interface. Query Expansion extracts a bounded set of search terms; malformed output, empty
 output, timeout, or model failure falls back to the original query. The vector
 branch always embeds the original question. The two search branches run
-concurrently, then RRF combines their ranked chunk positions with equal weights
-and one-based ranks: `sum(1 / (RRF_K + rank))`. Ties are resolved deterministically.
+concurrently. RRF behavior is unchanged: it combines ranked chunk positions with
+equal weights and one-based ranks: `sum(1 / (RRF_K + rank))`. Ties are resolved
+deterministically.
 
 The result contains up to `TOP_K` chunk dictionaries with `text`, `source`, and
-`chunk_id`. Either search branch can fail while the other supplies contexts;
+`chunk_id`, loaded from `rag.db` into the existing in-memory cache. Either search
+branch can fail while the other supplies contexts from readable chunk storage;
 if neither supplies usable contexts, retrieval returns an empty list. This
 fallback concerns retrieval; final answer generation still needs Ollama.
 
@@ -56,22 +57,27 @@ benchmarking. Application callers continue to use `retrieve(query)`.
 | Artifact | Purpose |
 | --- | --- |
 | `index.faiss` | FAISS vector index |
-| `chunks.pkl` | Ordered chunk dictionaries shared by both searches |
-| `fts_index.db` | Persistent SQLite FTS5 text index |
+| `rag.db` | Generated `chunks` table and external-content FTS5 `chunks_fts` index over `chunks.text` |
 
-All three are generated from the same chunks and can be rebuilt from source
-documents. SQLite is derived search data, not canonical document storage.
-FAISS and FTS results map to positions in the shared chunk list.
+Both artifacts are built from the same ordered chunk set and can be rebuilt.
+Source documents remain canonical source data; SQLite stores generated chunks
+and FTS5, while FAISS remains separate. Global retrieval IDs are zero-based
+`0..N-1`: `FAISS vector position == chunks.id == chunks_fts.rowid`.
+`chunk_id` remains the per-source-document ordinal.
 
-Run application commands from `src`. With defaults, all three artifacts are
+Run application commands from `src`. With defaults, both artifacts are
 written there and documents are read from `src/docs/`. Relative
-`FAISS_INDEX_PATH` and `CHUNKS_PATH` values resolve relative to `src`;
-`DOCUMENTS_DIR` and `FTS_INDEX_PATH` use normal `Path` semantics, so relative
+`FAISS_INDEX_PATH` values resolve relative to `src`;
+`DOCUMENTS_DIR` and `RAG_DB_PATH` use normal `Path` semantics, so relative
 values resolve from the current working directory. Absolute paths remain absolute.
 
-**Upgrading an old vector-only installation:** run `build-index` again to create
-`fts_index.db`. Existing FAISS/chunks artifacts do not trigger a rebuild merely
-because the FTS index is missing. Rebuild after changing source documents, too.
+Run `build-index` to build or rebuild both artifacts, including after source
+documents change. Restart a running assistant after rebuilding.
+
+**Migration note:** `chunks.pkl` and standalone `fts_index.db` are obsolete
+generated artifacts ignored by runtime. After successfully publishing both new
+artifacts, a build attempts to delete them best-effort; cleanup failures may
+leave them on disk without affecting retrieval.
 
 ## Setup and usage
 
@@ -118,8 +124,7 @@ Current defaults in [src/config.py](src/config.py):
 | `OLLAMA_MODEL` | `"qwen3:0.6b"` | Local model for expansion and answer/MCP decisions |
 | `OLLAMA_URL` | `"http://localhost:11434/api/generate"` | Expansion and answer-generation endpoint |
 | `FAISS_INDEX_PATH` | `"index.faiss"` | Vector index path |
-| `CHUNKS_PATH` | `"chunks.pkl"` | Shared chunk mapping path |
-| `FTS_INDEX_PATH` | `"fts_index.db"` | SQLite FTS5 path, relative to cwd when not absolute |
+| `RAG_DB_PATH` | `"rag.db"` | Generated chunks and FTS5 path, relative to cwd when not absolute |
 | `TOP_K` | `5` | Maximum final chunks |
 | `VECTOR_CANDIDATES` | `20` | Vector candidate depth before fusion |
 | `FTS_CANDIDATES` | `20` | Lexical candidate depth before fusion |

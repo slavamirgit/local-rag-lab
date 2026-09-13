@@ -159,17 +159,21 @@ Desktop.ini
 
 # FAISS index files
 *.faiss
-index.faiss
 
-# Generated SQLite lexical index and sidecars
+# Generated SQLite chunks and FTS5 index and sidecars
+rag.db
+rag.db-journal
+rag.db-wal
+rag.db-shm
+
+# Obsolete standalone FTS index and sidecars (best-effort cleanup may leave them)
 fts_index.db
 fts_index.db-journal
 fts_index.db-wal
 fts_index.db-shm
 
-# Pickle files (chunks cache)
+# Pickle files (including obsolete chunks.pkl)
 *.pkl
-chunks.pkl
 
 # Model files (if storing locally)
 *.bin
