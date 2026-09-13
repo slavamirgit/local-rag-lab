@@ -10,13 +10,10 @@ CHUNK_OVERLAP = 100
 # Embedding model
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
-# FAISS index paths (relative to src directory)
+# FAISS index path (relative to src directory)
 FAISS_INDEX_PATH = "index.faiss"
-CHUNKS_PATH = "chunks.pkl"
 
-# Lexical index path (normal Path semantics; relative paths resolve from cwd)
-# and candidate count before fusion
-FTS_INDEX_PATH = "fts_index.db"
+# Lexical candidate count before fusion
 FTS_CANDIDATES = 20
 
 # Generated chunk database (normal Path semantics; relative paths resolve from cwd)

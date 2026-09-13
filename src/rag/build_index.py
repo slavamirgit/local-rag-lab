@@ -2,7 +2,6 @@ import faiss
 from contextlib import contextmanager
 import logging
 import os
-import pickle
 import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -13,9 +12,13 @@ from rag.ingest import ingest_documents
 from rag.chunk import chunk_documents
 from rag.embed import embed_chunks
 from rag.store import build_rag_db
-from config import FAISS_INDEX_PATH, CHUNKS_PATH, RAG_DB_PATH
+from config import FAISS_INDEX_PATH, RAG_DB_PATH
 
 logger = logging.getLogger(__name__)
+
+# Published legacy defaults, used only for post-publication cleanup.
+_LEGACY_CHUNKS_PATH = "chunks.pkl"
+_LEGACY_FTS_DB_PATH = "fts_index.db"
 
 
 @contextmanager
@@ -39,11 +42,10 @@ def _staged_artifact(path):
 
 
 def build_index():
-    """Build FAISS, the runtime pickle mapping, and rag.db from ordered chunks."""
+    """Build FAISS and rag.db from the same ordered chunks."""
     # Resolve paths relative to src directory
     src_dir = Path(__file__).parent.parent
     index_path = src_dir / FAISS_INDEX_PATH
-    chunks_path = src_dir / CHUNKS_PATH
     rag_path = Path(RAG_DB_PATH)
     
     print("📥 Loading documents...")
@@ -69,25 +71,27 @@ def build_index():
     rag_path.parent.mkdir(parents=True, exist_ok=True)
     with (
         _staged_artifact(index_path) as staged_index,
-        _staged_artifact(chunks_path) as staged_chunks,
         _staged_artifact(rag_path) as staged_rag,
     ):
         faiss.write_index(index, str(staged_index))
-        with staged_chunks.open("wb") as f:
-            pickle.dump(chunks, f)
-
         print("📦 Creating chunk database and FTS index...")
         build_rag_db(chunks, staged_rag)
 
         # Publish only after every artifact has been constructed successfully.
-        # Each replacement is atomic; the three replacements are not a transaction.
+        # Each replacement is atomic; the two replacements are not a transaction.
         os.replace(staged_index, index_path)
-        os.replace(staged_chunks, chunks_path)
         os.replace(staged_rag, rag_path)
+
+    # Preserve the old src-relative chunks and cwd-relative FTS locations.
+    for legacy_path in (src_dir / _LEGACY_CHUNKS_PATH, Path(_LEGACY_FTS_DB_PATH)):
+        try:
+            legacy_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove legacy file %s", legacy_path, exc_info=True)
 
     print(f"✅ Indexing complete: {len(chunks)} chunks indexed")
     print(f"   Index saved to: {index_path}")
-    print(f"   Chunks saved to: {chunks_path}")
+    print(f"   Chunk database saved to: {rag_path}")
 
 
 if __name__ == "__main__":

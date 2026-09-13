@@ -49,7 +49,6 @@ class HybridQueryTests(unittest.TestCase):
         with (
             patch.dict(sys.modules, {"sentence_transformers": embedding}),
             patch.object(config, "FAISS_INDEX_PATH", str(index_path)),
-            patch.object(config, "CHUNKS_PATH", str(chunks_path)),
             patch.object(config, "RAG_DB_PATH", str(self.rag_path)),
             patch.object(faiss, "read_index", return_value=Mock(ntotal=8)) as read_index,
         ):
