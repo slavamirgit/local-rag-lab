@@ -19,6 +19,9 @@ CHUNKS_PATH = "chunks.pkl"
 FTS_INDEX_PATH = "fts_index.db"
 FTS_CANDIDATES = 20
 
+# Generated chunk database (normal Path semantics; relative paths resolve from cwd)
+RAG_DB_PATH = "rag.db"
+
 # Ollama configuration
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen3:0.6b"
