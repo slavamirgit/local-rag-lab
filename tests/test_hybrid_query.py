@@ -1,8 +1,10 @@
 """Hybrid integration tests with real threads and no external model calls."""
 
-from contextlib import ExitStack, chdir
+from contextlib import ExitStack, chdir, redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import importlib.util
+import io
 from pathlib import Path
 import pickle
 import sqlite3
@@ -29,7 +31,9 @@ class HybridQueryTests(unittest.TestCase):
 
         self.directory = directory = Path(stack.enter_context(TemporaryDirectory()))
         self.index_path = index_path = directory / "index.faiss"
-        index_path.touch()
+        initial_index = faiss.IndexFlatIP(2)
+        initial_index.add(np.tile(np.array([[1, 0]], dtype="float32"), (8, 1)))
+        faiss.write_index(initial_index, str(index_path))
         self.chunks_path = chunks_path = directory / "chunks.pkl"
         self.rag_path = directory / "rag.db"
         self.chunks = [
@@ -37,7 +41,8 @@ class HybridQueryTests(unittest.TestCase):
             for i in range(8)
         ]
         chunks_path.write_bytes(pickle.dumps(self.chunks))
-        store.build_rag_db(self.chunks, self.rag_path)
+        store.build_rag_db(self.chunks, self.rag_path,
+                           faiss_sha256=hashlib.sha256(index_path.read_bytes()).hexdigest())
         embedding = ModuleType("sentence_transformers")
         embedding.SentenceTransformer = Mock()
         self.constructor = embedding.SentenceTransformer
@@ -50,7 +55,7 @@ class HybridQueryTests(unittest.TestCase):
             patch.dict(sys.modules, {"sentence_transformers": embedding}),
             patch.object(config, "FAISS_INDEX_PATH", str(index_path)),
             patch.object(config, "RAG_DB_PATH", str(self.rag_path)),
-            patch.object(faiss, "read_index", return_value=Mock(ntotal=8)) as read_index,
+            patch.object(faiss, "read_index", wraps=faiss.read_index) as read_index,
         ):
             spec = importlib.util.spec_from_file_location(
                 "hybrid_query_under_test", root / "src/rag/query.py"
@@ -63,8 +68,11 @@ class HybridQueryTests(unittest.TestCase):
             self.assertIsNone(self.query.model)
             self.assertIsNone(self.query.index)
             self.assertEqual(self.query.chunks, [])
+            self.assertIsNone(self.query.generation_metadata)
+            self.assertIsNone(self.query.validated_faiss_sha256)
             # Existing algorithm tests start with explicitly prepared artifacts.
             self.assertTrue(self.query._ensure_index_exists())
+        stack.enter_context(patch.object(self.query.index, "search"))
         self.chunks = self.query.chunks
         self.expand = stack.enter_context(patch.object(
             self.query, "expand_query", return_value=["original query", "term"]
@@ -255,16 +263,15 @@ class HybridQueryTests(unittest.TestCase):
             {"text": "oldneedle recovery instructions", "source": "old.txt", "chunk_id": 8},
         ]
         self.chunks_path.write_bytes(pickle.dumps(self.stored_chunks))
-        store.build_rag_db(self.stored_chunks, self.rag_path)
         if corrupt_faiss:
             self.index_path.write_bytes(b"corrupt FAISS data")
         else:
             index = faiss.IndexFlatIP(2)
             index.add(np.array([[1, 0], [0, 1]], dtype="float32"))
             faiss.write_index(index, str(self.index_path))
-        self.query.chunks = []
-        self.query.index = None
-        self.query.model = None
+        store.build_rag_db(self.stored_chunks, self.rag_path,
+                           faiss_sha256=self.persisted_sha256())
+        self.reset_runtime()
         self.model.encode.side_effect = lambda inputs: np.array([[0, 4]], dtype="float32")
         self.expand.return_value = ["oldneedle"]
         self.fts.side_effect = lambda inputs, limit: fts.search_fts(
@@ -272,10 +279,342 @@ class HybridQueryTests(unittest.TestCase):
         )
         self.assertEqual(fts.search_fts("oldneedle", db_path=self.rag_path), [1])
 
+    def persisted_sha256(self):
+        return hashlib.sha256(self.index_path.read_bytes()).hexdigest()
+
+    def reset_runtime(self):
+        self.query.chunks = []
+        self.query.index = None
+        self.query.model = None
+        self.query.generation_metadata = None
+        self.query.validated_faiss_sha256 = None
+
     def assert_fts_chunk(self, result):
         self.assertEqual(self.query.chunks, self.stored_chunks)
         self.assertEqual(result, [self.stored_chunks[1]])
         self.assertIs(result[0], self.query.chunks[1])
+
+    def test_healthy_generation_validates_once_and_reuses_cache(self):
+        self.prepare_real_artifacts()
+        expected_metadata = {"faiss_sha256": self.persisted_sha256(), "chunk_count": 2}
+        real_hash = self.query._sha256_file
+
+        def hash_before_acceptance(path):
+            self.assertEqual(path, self.index_path)
+            self.assertIsNone(self.query.index)
+            self.assertIsNone(self.query.validated_faiss_sha256)
+            self.assertEqual(self.query.chunks, self.stored_chunks)
+            self.assertEqual(self.query.generation_metadata, expected_metadata)
+            self.constructor.assert_not_called()
+            return real_hash(path)
+
+        with (
+            patch.object(self.query, "load_chunks", wraps=self.query.load_chunks) as chunks,
+            patch.object(self.query, "load_generation_metadata",
+                         wraps=self.query.load_generation_metadata) as metadata,
+            patch.object(faiss, "read_index", wraps=faiss.read_index) as reader,
+            patch.object(self.query, "_sha256_file", side_effect=hash_before_acceptance) as digest,
+        ):
+            self.assertTrue(self.query._ensure_index_exists())
+            accepted_index, accepted_chunks = self.query.index, self.query.chunks
+            self.assertEqual(accepted_index.ntotal, 2)
+            self.assertEqual(self.query.validated_faiss_sha256, expected_metadata["faiss_sha256"])
+            self.constructor.assert_not_called()
+            self.assertTrue(self.query._ensure_index_exists())
+            for retrieve in (self.query.retrieve, self.query.retrieve_vector):
+                self.assertEqual(retrieve("oldneedle"),
+                                 [self.stored_chunks[1], self.stored_chunks[0]])
+            chunks.assert_called_once_with(str(self.rag_path))
+            metadata.assert_called_once_with(str(self.rag_path))
+            reader.assert_called_once_with(str(self.index_path))
+            digest.assert_called_once_with(self.index_path)
+            self.assertIs(self.query.index, accepted_index)
+            self.assertIs(self.query.chunks, accepted_chunks)
+        self.rebuild.assert_not_called()
+
+    def assert_rejected_with_safe_fts(self, message):
+        """Exercise real readiness/search/fusion and forbid candidate vector use."""
+        with (
+            patch.object(faiss.IndexFlatIP, "search") as vector_search,
+            patch.object(self.query, "reciprocal_rank_fusion",
+                         wraps=self.query.reciprocal_rank_fusion) as fusion,
+            self.assertLogs(self.query.logger, level="WARNING") as logs,
+        ):
+            self.assert_fts_chunk(self.query.retrieve("oldneedle"))
+        self.assertIn(message, " ".join(logs.output))
+        self.assertIsNone(self.query.index)
+        self.assertIsNone(self.query.validated_faiss_sha256)
+        self.constructor.assert_not_called()
+        self.model.encode.assert_not_called()
+        vector_search.assert_not_called()
+        fusion.assert_called_once_with([[], [1]], limit=self.query.TOP_K)
+        self.rebuild.assert_called_once_with()
+
+    def test_equal_counts_and_in_range_ids_do_not_prove_hash_compatibility(self):
+        self.prepare_real_artifacts()
+        old_sha256 = self.persisted_sha256()
+        candidate = faiss.IndexFlatIP(2)
+        candidate.add(np.array([[0, 1], [1, 0]], dtype="float32"))
+        faiss.write_index(candidate, str(self.index_path))
+        self.assertNotEqual(self.persisted_sha256(), old_sha256)
+        readable = faiss.read_index(str(self.index_path))
+        self.assertEqual(readable.ntotal, len(self.stored_chunks))
+        _, ids = readable.search(np.array([[0, 1]], dtype="float32"), 2)
+        self.assertEqual(ids.tolist(), [[0, 1]])
+        # B would rank A's unrelated ID 0 first: both IDs pass range checks.
+        self.assert_rejected_with_safe_fts("FAISS SHA-256 mismatch")
+        self.assertEqual(self.query.generation_metadata["faiss_sha256"], old_sha256)
+
+    def test_partial_publication_rejects_b_faiss_with_a_database(self):
+        from rag import fts, store
+
+        self.prepare_real_artifacts()
+        # Replace only external ingestion/chunking/embedding boundaries. Use the
+        # actual builder for staging, metadata construction, and publication.
+        embedding = ModuleType("rag.embed")
+        embedding.embed_chunks = Mock()
+        chunking = ModuleType("rag.chunk")
+        chunking.chunk_documents = Mock()
+        with patch.dict(sys.modules, {"rag.embed": embedding, "rag.chunk": chunking}):
+            spec = importlib.util.spec_from_file_location(
+                "publication_builder_under_test",
+                Path(__file__).resolve().parents[1] / "src/rag/build_index.py",
+            )
+            builder = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(builder)
+
+        new_chunks = [
+            {"text": "oldneedle B instructions", "source": "B.txt", "chunk_id": 91},
+            {"text": "B background", "source": "B-background.txt", "chunk_id": 42},
+        ]
+        self.assertEqual(len(new_chunks), len(self.stored_chunks))
+        staged_metadata = None
+        real_replace = builder.os.replace
+        replacements = []
+
+        def fail_second_replace(source, destination):
+            nonlocal staged_metadata
+            replacements.append(Path(destination))
+            if len(replacements) == 2:
+                self.assertEqual(Path(destination), self.rag_path)
+                # B is fully built and committed, including real MATCH results.
+                self.assertEqual(store.load_chunks(source), new_chunks)
+                self.assertEqual(fts.search_fts("oldneedle", db_path=source), [0])
+                staged_metadata = store.load_generation_metadata(source)
+                self.assertEqual(staged_metadata["chunk_count"], len(new_chunks))
+                self.assertEqual(staged_metadata["faiss_sha256"], self.persisted_sha256())
+                raise OSError("injected second replacement failure")
+            self.assertEqual(Path(destination), self.index_path)
+            return real_replace(source, destination)
+
+        with (
+            patch.object(builder, "FAISS_INDEX_PATH", str(self.index_path)),
+            patch.object(builder, "RAG_DB_PATH", str(self.rag_path)),
+            patch.object(builder, "__file__", str(self.directory / "rag/build_index.py")),
+            patch.object(builder, "ingest_documents", return_value=[{"text": "input"}]),
+            chdir(self.directory),
+            redirect_stdout(io.StringIO()),
+        ):
+            chunking.chunk_documents.return_value = self.stored_chunks
+            embedding.embed_chunks.return_value = np.array([[1, 0], [0, 1]], dtype="float32")
+            builder.build_index()
+            old_metadata = store.load_generation_metadata(self.rag_path)
+            old_db_bytes = self.rag_path.read_bytes()
+            self.assertEqual(old_metadata["faiss_sha256"], self.persisted_sha256())
+            self.assertEqual(store.load_chunks(self.rag_path), self.stored_chunks)
+
+            chunking.chunk_documents.return_value = new_chunks
+            embedding.embed_chunks.return_value = np.array([[0, 1], [1, 0]], dtype="float32")
+            with (
+                patch.object(builder.os, "replace", side_effect=fail_second_replace),
+                self.assertRaisesRegex(OSError, "injected second replacement failure"),
+            ):
+                builder.build_index()
+
+        self.assertEqual(replacements, [self.index_path, self.rag_path])
+        self.assertEqual(self.rag_path.read_bytes(), old_db_bytes)
+        self.assertEqual(store.load_generation_metadata(self.rag_path), old_metadata)
+        self.assertNotEqual(staged_metadata["faiss_sha256"], old_metadata["faiss_sha256"])
+        candidate = faiss.read_index(str(self.index_path))
+        self.assertEqual(candidate.ntotal, old_metadata["chunk_count"])
+        np.testing.assert_array_equal(candidate.reconstruct_n(0, 2), [[0, 1], [1, 0]])
+        _, ids = candidate.search(np.array([[0, 1]], dtype="float32"), 2)
+        self.assertEqual(ids.tolist(), [[0, 1]])
+        self.reset_runtime()
+        self.assert_rejected_with_safe_fts("FAISS SHA-256 mismatch")
+        self.assertEqual(self.query.generation_metadata, old_metadata)
+
+    def test_missing_metadata_preserves_legacy_database_fts(self):
+        for missing in ("table", "row"):
+            with self.subTest(missing=missing):
+                self.prepare_real_artifacts()
+                self.rebuild.reset_mock()
+                with sqlite3.connect(self.rag_path) as connection:
+                    connection.execute("DROP TABLE generation_meta" if missing == "table"
+                                       else "DELETE FROM generation_meta")
+                self.assertEqual(faiss.read_index(str(self.index_path)).ntotal, 2)
+                self.assert_rejected_with_safe_fts("Generation metadata missing")
+                self.assertIsNone(self.query.generation_metadata)
+
+    def test_malformed_metadata_preserves_readable_chunks_and_fts(self):
+        self.prepare_real_artifacts()
+        with sqlite3.connect(self.rag_path) as connection:
+            connection.execute("UPDATE generation_meta SET faiss_sha256 = 'invalid'")
+        self.assert_rejected_with_safe_fts("Generation metadata loading failed")
+        self.assertIsNone(self.query.generation_metadata)
+
+    def test_unreadable_metadata_preserves_readable_chunks_and_fts(self):
+        self.prepare_real_artifacts()
+        with patch.object(self.query, "load_generation_metadata",
+                          side_effect=OSError("metadata unreadable")):
+            self.assert_rejected_with_safe_fts("metadata unreadable")
+        self.assertIsNone(self.query.generation_metadata)
+
+    def test_count_mismatches_preserve_readable_chunks_and_fts(self):
+        for mismatch in ("FAISS", "loaded chunk"):
+            with self.subTest(mismatch=mismatch):
+                self.prepare_real_artifacts()
+                self.rebuild.reset_mock()
+                with sqlite3.connect(self.rag_path) as connection:
+                    if mismatch == "FAISS":
+                        candidate = faiss.IndexFlatIP(2)
+                        candidate.add(np.array([[1, 0]], dtype="float32"))
+                        faiss.write_index(candidate, str(self.index_path))
+                        # Isolate the count check: persisted hash does match.
+                        connection.execute("UPDATE generation_meta SET faiss_sha256 = ?",
+                                           (self.persisted_sha256(),))
+                    else:
+                        connection.execute("UPDATE generation_meta SET chunk_count = 3")
+                self.assert_rejected_with_safe_fts(f"{mismatch} count mismatch")
+
+    def test_hash_read_failure_never_accepts_candidate(self):
+        self.prepare_real_artifacts()
+        with patch.object(self.query, "_sha256_file", side_effect=OSError("hash read failed")):
+            self.assert_rejected_with_safe_fts("hash read failed")
+
+    def test_vector_only_rejects_unproven_generation_without_fts(self):
+        self.prepare_real_artifacts()
+        with sqlite3.connect(self.rag_path) as connection:
+            connection.execute("DELETE FROM generation_meta")
+        with self.assertLogs(self.query.logger, level="WARNING"):
+            self.assertEqual(self.query.retrieve_vector("oldneedle"), [])
+        self.assertIsNone(self.query.index)
+        self.assertIsNone(self.query.validated_faiss_sha256)
+        self.assertEqual(self.query.chunks, self.stored_chunks)
+        self.rebuild.assert_called_once_with()
+        self.constructor.assert_not_called()
+        self.model.encode.assert_not_called()
+        self.fts.assert_not_called()
+
+    def test_cache_reset_or_generation_reload_requires_revalidation(self):
+        for reset in ("index", "chunks", "generation_metadata", "reload"):
+            with self.subTest(reset=reset):
+                self.prepare_real_artifacts()
+                self.assertTrue(self.query._ensure_index_exists())
+                with patch.object(self.query, "_sha256_file", wraps=self.query._sha256_file) as digest:
+                    if reset == "reload":
+                        self.assertTrue(self.query._ensure_chunks_loaded(reload=True))
+                        self.assertIsNone(self.query.index)
+                        self.assertIsNone(self.query.validated_faiss_sha256)
+                    else:
+                        setattr(self.query, reset, [] if reset == "chunks" else None)
+                    self.assertTrue(self.query._ensure_index_exists())
+                    digest.assert_called_once_with(self.index_path)
+                    self.assertTrue(self.query._ensure_index_exists())
+                    self.assertEqual(digest.call_count, 1)
+        self.constructor.assert_not_called()
+        self.rebuild.assert_not_called()
+
+    def test_post_rebuild_metadata_failure_clears_old_validation(self):
+        from rag import store
+
+        for failure in (None, ValueError("invalid rebuilt metadata"), OSError("metadata reload failed")):
+            with self.subTest(failure=failure):
+                self.prepare_real_artifacts()
+                self.assertTrue(self.query._ensure_index_exists())
+                old_index = self.query.index
+                old_metadata = self.query.generation_metadata
+                self.assertEqual(self.query.validated_faiss_sha256, old_metadata["faiss_sha256"])
+                # Lose the vector cache, then reject a changed artifact.
+                self.query.index = None
+                candidate = faiss.IndexFlatIP(2)
+                candidate.add(np.array([[0, 1], [1, 0]], dtype="float32"))
+                faiss.write_index(candidate, str(self.index_path))
+                new_chunks = list(reversed(self.stored_chunks))
+
+                def rebuild():
+                    self.assertIsNone(self.query.index)
+                    self.assertIsNone(self.query.validated_faiss_sha256)
+                    store.build_rag_db(new_chunks, self.rag_path,
+                                       faiss_sha256=self.persisted_sha256())
+
+                self.rebuild.side_effect = rebuild
+                self.rebuild.reset_mock()
+                with (
+                    patch.object(self.query, "load_generation_metadata", side_effect=[failure]) as metadata,
+                    patch.object(self.query, "reciprocal_rank_fusion",
+                                 wraps=self.query.reciprocal_rank_fusion) as fusion,
+                    self.assertLogs(self.query.logger, level="WARNING"),
+                ):
+                    result = self.query.retrieve("oldneedle")
+                metadata.assert_called_once_with(str(self.rag_path))
+                self.rebuild.assert_called_once_with()
+                self.assertEqual(self.query.chunks, new_chunks)
+                self.assertEqual(result, [new_chunks[0]])
+                self.assertIs(result[0], self.query.chunks[0])
+                fusion.assert_called_once_with([[], [0]], limit=self.query.TOP_K)
+                self.assertIsNot(self.query.index, old_index)
+                self.assertIsNone(self.query.index)
+                self.assertIsNone(self.query.generation_metadata)
+                self.assertIsNone(self.query.validated_faiss_sha256)
+        self.constructor.assert_not_called()
+        self.model.encode.assert_not_called()
+
+    def test_post_rebuild_hash_mismatch_uses_only_current_fts_chunks(self):
+        from rag import store
+
+        self.prepare_real_artifacts(corrupt_faiss=True)
+        self.assertTrue(self.query._ensure_chunks_loaded())
+        new_chunks = list(reversed(self.stored_chunks))
+
+        def rebuild():
+            candidate = faiss.IndexFlatIP(2)
+            candidate.add(np.array([[0, 1], [1, 0]], dtype="float32"))
+            faiss.write_index(candidate, str(self.index_path))
+            store.build_rag_db(new_chunks, self.rag_path, faiss_sha256="0" * 64)
+
+        self.rebuild.side_effect = rebuild
+        with (
+            patch.object(faiss.IndexFlatIP, "search") as vector_search,
+            patch.object(self.query, "reciprocal_rank_fusion",
+                         wraps=self.query.reciprocal_rank_fusion) as fusion,
+            self.assertLogs(self.query.logger, level="WARNING") as logs,
+        ):
+            result = self.query.retrieve("oldneedle")
+        self.assertIn("loading after rebuild failed", " ".join(logs.output))
+        self.assertIn("FAISS SHA-256 mismatch", " ".join(logs.output))
+        self.rebuild.assert_called_once_with()
+        self.assertIsNone(self.query.index)
+        self.assertIsNone(self.query.validated_faiss_sha256)
+        self.assertEqual(self.query.chunks, new_chunks)
+        self.assertEqual(result, [new_chunks[0]])
+        self.assertIs(result[0], self.query.chunks[0])
+        fusion.assert_called_once_with([[], [0]], limit=self.query.TOP_K)
+        vector_search.assert_not_called()
+        self.constructor.assert_not_called()
+        self.model.encode.assert_not_called()
+
+    def test_real_fts_failure_preserves_validated_vector_results(self):
+        self.prepare_real_artifacts()
+        with sqlite3.connect(self.rag_path) as connection:
+            connection.execute("DROP TABLE chunks_fts")
+        with self.assertLogs(level="WARNING"):
+            result = self.query.retrieve("oldneedle")
+        self.assertEqual(result, [self.stored_chunks[1], self.stored_chunks[0]])
+        self.assertEqual(self.query.validated_faiss_sha256, self.persisted_sha256())
+        self.assertIs(result[0], self.query.chunks[1])
+        self.model.encode.assert_called_once_with(["oldneedle"])
+        self.rebuild.assert_not_called()
 
     def test_initial_loading_ignores_conflicting_missing_and_corrupt_pickle(self):
         conflicting_chunks = [
@@ -449,6 +788,7 @@ class HybridQueryTests(unittest.TestCase):
             self.assertEqual(name, self.query.EMBEDDING_MODEL)
             self.assertEqual(self.query.chunks, self.stored_chunks)
             self.assertIsNotNone(self.query.index)
+            self.assertEqual(self.query.validated_faiss_sha256, self.persisted_sha256())
             rendezvous.wait()
             raise RuntimeError("injected model initialization failure")
 
@@ -516,8 +856,7 @@ class HybridQueryTests(unittest.TestCase):
         self.prepare_real_artifacts()
         for contents in (None, b"corrupt SQLite database"):
             with self.subTest(contents=contents):
-                self.query.chunks = []
-                self.query.index = None
+                self.reset_runtime()
                 if contents is None:
                     self.rag_path.unlink()
                 else:
@@ -556,12 +895,15 @@ class HybridQueryTests(unittest.TestCase):
             index = faiss.IndexFlatIP(2)
             index.add(np.array([[0, 1], [1, 0]], dtype="float32"))
             faiss.write_index(index, str(self.index_path))
-            store.build_rag_db(new_chunks, self.rag_path)
+            store.build_rag_db(new_chunks, self.rag_path,
+                               faiss_sha256=self.persisted_sha256())
             repaired.set()
 
         def encode(inputs):
             self.assertEqual(inputs, ["oldneedle"])
             self.assertTrue(repaired.is_set())
+            self.assertEqual(self.query.validated_faiss_sha256, self.persisted_sha256())
+            self.assertEqual(self.query.generation_metadata["chunk_count"], len(new_chunks))
             rendezvous.wait()
             vector_finished.set()
             return np.array([[0, 4]], dtype="float32")
@@ -577,8 +919,19 @@ class HybridQueryTests(unittest.TestCase):
         self.rebuild.side_effect = rebuild
         self.model.encode.side_effect = encode
         self.fts.side_effect = search
-        with self.assertLogs(self.query.logger, level="WARNING"):
+        with (
+            self.assertLogs(self.query.logger, level="WARNING"),
+            patch.object(self.query, "load_chunks", wraps=self.query.load_chunks) as chunks,
+            patch.object(self.query, "load_generation_metadata",
+                         wraps=self.query.load_generation_metadata) as metadata,
+            patch.object(self.query, "_sha256_file", wraps=self.query._sha256_file) as digest,
+            patch.object(faiss, "read_index", wraps=faiss.read_index) as reader,
+        ):
             result = self.query.retrieve("oldneedle")
+        chunks.assert_called_once_with(str(self.rag_path))
+        metadata.assert_called_once_with(str(self.rag_path))
+        digest.assert_called_once_with(self.index_path)
+        self.assertEqual(reader.call_count, 2)
         self.rebuild.assert_called_once_with()
         self.assertTrue(vector_finished.is_set())
         self.assertTrue(fts_finished.is_set())
@@ -593,7 +946,8 @@ class HybridQueryTests(unittest.TestCase):
         self.prepare_real_artifacts()
         self.rag_path.unlink()
         def rebuild():
-            store.build_rag_db(self.stored_chunks, self.rag_path)
+            store.build_rag_db(self.stored_chunks, self.rag_path,
+                               faiss_sha256=self.persisted_sha256())
 
         self.rebuild.side_effect = rebuild
         with self.assertLogs(self.query.logger, level="WARNING"):
@@ -611,7 +965,8 @@ class HybridQueryTests(unittest.TestCase):
         new_chunks = [self.stored_chunks[1], self.stored_chunks[0]]
 
         def rebuild():
-            store.build_rag_db(new_chunks, self.rag_path)
+            store.build_rag_db(new_chunks, self.rag_path,
+                               faiss_sha256=self.persisted_sha256())
 
         self.rebuild.side_effect = rebuild
         with self.assertLogs(self.query.logger, level="WARNING") as logs:
@@ -639,6 +994,8 @@ class HybridQueryTests(unittest.TestCase):
                     self.assertEqual(self.query.retrieve("oldneedle"), [])
                 self.assertEqual(self.query.chunks, [])
                 self.assertIsNone(self.query.index)
+                self.assertIsNone(self.query.generation_metadata)
+                self.assertIsNone(self.query.validated_faiss_sha256)
                 self.assertIn("Chunk loading failed", " ".join(logs.output))
         self.assertEqual(self.rebuild.call_count, 2)
         self.fts.assert_not_called()

@@ -1,4 +1,5 @@
 import faiss
+import hashlib
 import logging
 import requests
 import sys
@@ -24,16 +25,18 @@ from config import (
 from rag.fts import search_fts
 from rag.fusion import reciprocal_rank_fusion
 from rag.query_expansion import expand_query
-from rag.store import load_chunks
+from rag.store import load_chunks, load_generation_metadata
 
 logger = logging.getLogger(__name__)
 
 model = None
 _model_lock = Lock()
 
-# Global variables for index and chunks
+# Cached chunk generation and its validated vector identity.
 index = None
 chunks = []
+generation_metadata = None
+validated_faiss_sha256 = None
 # Serialize readiness and retain the lock through fallback on a failed repair.
 _retrieval_lock = Lock()
 
@@ -49,34 +52,79 @@ def _get_model():
 
 
 def _ensure_chunks_loaded(*, reload=False):
-    """Load the shared ID mapping without depending on FAISS or a model."""
-    global chunks
-    if chunks and not reload:
+    """Load chunks and identity independently, preserving lexical fallback."""
+    global chunks, index, generation_metadata, validated_faiss_sha256
+    if chunks and generation_metadata is not None and not reload:
         return True
+    index = None
+    generation_metadata = None
+    validated_faiss_sha256 = None
     try:
         chunks = load_chunks(RAG_DB_PATH)
-        return True
     except Exception as exc:
-        if reload:
-            # A successful rebuild may have published new FTS IDs. Never map
-            # them through cached chunks if the new database cannot be loaded.
-            chunks = []
+        # Never resolve new IDs through an older cached mapping.
+        chunks = []
         logger.warning("Chunk loading failed: %s", exc)
         return False
+    try:
+        generation_metadata = load_generation_metadata(RAG_DB_PATH)
+        if generation_metadata is None:
+            logger.warning("Generation metadata missing; vector compatibility is unproven")
+    except Exception as exc:
+        logger.warning("Generation metadata loading failed: %s", exc)
+    return True
+
+
+def _sha256_file(path: Path) -> str:
+    """Hash the published FAISS bytes with bounded memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _generation_is_validated():
+    """Check cached readiness without touching storage or the query model."""
+    return (
+        index is not None
+        and generation_metadata is not None
+        and validated_faiss_sha256 == generation_metadata["faiss_sha256"]
+        and len(chunks) == generation_metadata["chunk_count"] == index.ntotal
+    )
+
+
+def _load_validated_index(index_path):
+    """Publish a candidate in memory only after proving generation identity."""
+    global index, validated_faiss_sha256
+    if generation_metadata is None:
+        raise ValueError("Vector generation incompatible: missing valid generation metadata")
+    expected_count = generation_metadata["chunk_count"]
+    if len(chunks) != expected_count:
+        raise ValueError("Vector generation incompatible: loaded chunk count mismatch")
+    candidate_index = faiss.read_index(str(index_path))
+    if candidate_index.ntotal != expected_count:
+        raise ValueError("Vector generation incompatible: FAISS count mismatch")
+    faiss_sha256 = _sha256_file(index_path)
+    if faiss_sha256 != generation_metadata["faiss_sha256"]:
+        raise ValueError("Vector generation incompatible: FAISS SHA-256 mismatch")
+    index = candidate_index
+    validated_faiss_sha256 = faiss_sha256
 
 
 def _ensure_index_exists():
     """Prepare shared artifacts before searches; preserve chunks on vector failure."""
-    global index
-    chunks_ready = _ensure_chunks_loaded()
-    if chunks_ready and index is not None:
+    global index, validated_faiss_sha256
+    if _generation_is_validated():
         return True
 
     index_path = Path(__file__).parent.parent / FAISS_INDEX_PATH
     index = None
+    validated_faiss_sha256 = None
+    chunks_ready = _ensure_chunks_loaded()
     if chunks_ready:
         try:
-            index = faiss.read_index(str(index_path))
+            _load_validated_index(index_path)
             return True
         except Exception as exc:
             logger.warning("Vector index loading failed; attempting rebuild: %s", exc)
@@ -92,7 +140,7 @@ def _ensure_index_exists():
     if not _ensure_chunks_loaded(reload=True):
         return False
     try:
-        index = faiss.read_index(str(index_path))
+        _load_validated_index(index_path)
         return True
     except Exception as exc:
         logger.warning("Vector index loading after rebuild failed: %s", exc)
