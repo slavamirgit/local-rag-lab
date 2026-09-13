@@ -14,7 +14,9 @@ from time import perf_counter
 from unittest.mock import patch
 from urllib.parse import urlsplit, urlunsplit
 
-from vector_baseline import CHALLENGE_MANIFEST, DATASETS, ROOT, aggregate, fingerprint
+from vector_baseline import (
+    CHALLENGE_MANIFEST, DATASETS, ROOT, aggregate, fingerprint, validate_output_path,
+)
 
 
 def verify_query_identity(vector_rows, hybrid_rows):
@@ -119,7 +121,7 @@ def main():
     parser.add_argument("--dataset", choices=DATASETS, default="sanity")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    output = args.output or ROOT / f"bench/results/hybrid-{args.dataset}.json"
+    output = validate_output_path(args.output, ROOT / f"bench/results/hybrid-{args.dataset}.json")
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite {output}; use --output with a new path")
     corpus_name, queries_name, vector_name = DATASETS[args.dataset]
@@ -163,8 +165,7 @@ def main():
     runtime.mkdir(parents=True, exist_ok=True)
     config.DOCUMENTS_DIR = str(ROOT / corpus_name)
     config.FAISS_INDEX_PATH = str(runtime / "index.faiss")
-    config.CHUNKS_PATH = str(runtime / "chunks.pkl")
-    config.FTS_INDEX_PATH = str(runtime / "fts_index.db")
+    config.RAG_DB_PATH = str(runtime / "rag.db")
 
     from rag import build_index, chunk, ingest
 

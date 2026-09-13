@@ -27,6 +27,16 @@ DATASETS = {
 CHALLENGE_MANIFEST = ROOT / "bench/challenge-inputs.sha256"
 
 
+def validate_output_path(output, historical):
+    """Require an explicit destination distinct from the retained historical path."""
+    if output is None or output.resolve() == historical.resolve():
+        raise ValueError(
+            f"Refusing historical result destination {historical}; "
+            "use --output with a different path"
+        )
+    return output
+
+
 def fingerprint(paths):
     return {
         path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -56,7 +66,7 @@ def main():
     corpus_name, queries_name, result_name = DATASETS[args.dataset]
     corpus = ROOT / corpus_name
     queries_path = ROOT / queries_name
-    output = args.output or ROOT / "bench/results" / result_name
+    output = validate_output_path(args.output, ROOT / "bench/results" / result_name)
 
     files = sorted(corpus.glob("*.txt"))
     queries = json.loads(queries_path.read_text(encoding="utf-8"))
@@ -100,8 +110,7 @@ def main():
     runtime.mkdir(parents=True, exist_ok=True)
     config.DOCUMENTS_DIR = str(corpus)
     config.FAISS_INDEX_PATH = str(runtime / "index.faiss")
-    config.CHUNKS_PATH = str(runtime / "chunks.pkl")
-    config.FTS_INDEX_PATH = str(runtime / "fts_index.db")
+    config.RAG_DB_PATH = str(runtime / "rag.db")
 
     from rag import build_index, chunk, ingest
 
