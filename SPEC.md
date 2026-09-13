@@ -28,7 +28,7 @@ The application already provides:
 The public retrieval interface is:
 
 ```python
-retrieve(query: str)
+retrieve(query: str) -> list[dict]
 ```
 
 It returns ranked chunk dictionaries containing at least:
@@ -56,7 +56,7 @@ Document discovery must work recursively under the configured documents director
 
 Running the index build command must complete successfully when valid documents are present.
 
-## 4. Indexes
+## 4. Retrieval Storage and Indexes
 
 The application uses two independent retrieval indexes over the same chunks.
 
@@ -66,9 +66,9 @@ FAISS remains the vector search engine.
 
 Existing embedding behavior must remain compatible with the current application.
 
-### 4.2 Full-Text Index
+### 4.2 SQLite Chunk Store and Full-Text Index
 
-Add a persistent SQLite FTS5 index.
+Store generated chunks and a persistent SQLite FTS5 external-content index in `rag.db`.
 
 The FTS index:
 
@@ -82,11 +82,66 @@ The expected generated artifacts are:
 
 ```text
 index.faiss
-chunks.pkl
-fts_index.db
+rag.db
 ```
 
-A chunk identifier used by FTS must resolve unambiguously to the same chunk represented by the corresponding FAISS result.
+Source documents remain the canonical source data outside SQLite. Within a retrieval generation, `rag.db` is the canonical persisted store for generated chunk data; it remains derived, rebuildable data, not canonical source-document storage.
+
+`rag.db` contains the following content table and external-content FTS index over `chunks.text`:
+
+```sql
+CREATE TABLE chunks (
+    id INTEGER PRIMARY KEY,
+    text TEXT NOT NULL,
+    source TEXT NOT NULL,
+    chunk_id INTEGER NOT NULL
+);
+
+CREATE VIRTUAL TABLE chunks_fts USING fts5(
+    text, content='chunks', content_rowid='id', tokenize='unicode61'
+);
+```
+
+The required global retrieval identity invariant is:
+
+```text
+FAISS vector position == chunks.id == chunks_fts.rowid
+```
+
+For N generated chunks, global retrieval IDs form the contiguous range `0..N-1` and the FAISS index contains exactly N vectors.
+
+Global retrieval IDs are assigned explicitly from the zero-based positions in the ordered chunk list. ID `0` is valid and must be searchable and resolvable, including through FTS `MATCH`. The existing `chunk_id` field remains the per-source-document chunk ordinal and is not the global retrieval identity. Returned chunk dictionaries preserve `text`, `source`, and `chunk_id` from the corresponding `chunks` row.
+
+### 4.3 External-Content FTS Lifecycle
+
+Every full `rag.db` build/rebuild must perform all SQLite chunk and FTS construction in one transaction:
+
+1. create the `chunks` table;
+2. create the external-content `chunks_fts` table;
+3. insert the complete ordered chunk set into `chunks`, with explicit zero-based IDs;
+4. explicitly build the real FTS index from the content table using the FTS5 rebuild command:
+
+   ```sql
+   INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild');
+   ```
+
+5. commit only after both the generated chunk rows and the searchable FTS index are complete.
+
+Inserting rows into `chunks` alone does not constitute a completed FTS build. Reading content rows through the external-content table is not proof that a real `MATCH` search works. Construction failure must roll back the SQLite transaction, including schema construction.
+
+A published generated `rag.db` is not mutated incrementally. Changes require building a new full retrieval generation; SQLite synchronization triggers are not required.
+
+### 4.4 Generation Construction and Publication
+
+A retrieval generation consists of `index.faiss` and `rag.db`, both built from the same exact ordered chunk list. Completely construct both artifacts in staged sibling files of their respective final paths before publication of either final artifact begins. The staged `rag.db` must already contain the complete `chunks` table and a fully built, searchable external-content FTS index, with its construction transaction committed.
+
+Any construction failure must leave the previous published generation untouched. Final publication may use separate atomic file replacements; cross-file transactional or crash-atomic publication is not required. This does not relax the construction-failure integrity guarantee or the prohibition on mixed-generation ID mapping in Section 8.
+
+### 4.5 Legacy Generated Artifacts
+
+`chunks.pkl` and the old standalone `fts_index.db` are legacy generated artifacts. After migration they must never participate in runtime readiness, fallback, chunk mapping, FTS, or rebuild decisions, even if they exist and contain conflicting data.
+
+After successful publication of both new final artifacts, remove legacy generated files on a best-effort basis. Log cleanup failures without invalidating the new generation, rolling back publication, or making legacy files runtime inputs. Legacy files may physically remain after cleanup failure and must still be ignored.
 
 ## 5. Query Expansion
 
@@ -145,6 +200,8 @@ or an equivalent concurrency mechanism suitable for the existing synchronous cod
 
 The two independent searches must not be executed sequentially.
 
+Healthy requests must also remain capable of overlapping vector/FTS retrieval across requests; generation readiness and rebuild safety must not globally serialize healthy searches.
+
 Each search leg returns an ordered candidate list.
 
 The candidate depth used before fusion may be larger than the final `TOP_K`.
@@ -156,12 +213,19 @@ The two search legs are independent.
 Required behavior:
 
 * query expansion failure → search using the original query;
-* FTS failure → continue with vector results;
-* vector search failure → continue with FTS results when available;
+* FTS index/build or search failure while `rag.db` chunk storage remains readable → continue with vector results mapped through chunks from the same generation;
+* FAISS loading, vector model, or vector search failure while valid `rag.db` exists → continue with FTS results resolved through that database when available, including when an attempted rebuild fails;
+* canonical generated chunk storage in `rag.db` unavailable or corrupt → FAISS IDs cannot safely resolve to public chunk dictionaries; return no contexts if safe resolution cannot be restored;
 * one empty search result → use the other result list;
 * both searches unavailable or empty → return no contexts without crashing the process.
 
 Failures should be observable through logging but must not corrupt generated indexes or terminate the application unnecessarily.
+
+A request must never map IDs from one retrieval generation through chunk data from another. Search results and their chunk mapping must remain tied to the same generation throughout search, fusion, and resolution. Unrelated or stale storage must not substitute for unavailable chunk storage.
+
+Preserve rebuild/fallback race safety: prepare a coherent generation before searching; after a successful rebuild, use that generation's chunk mapping even if FAISS loading fails. If the new chunk storage cannot be read, do not reuse an older cached mapping for new IDs. A fallback request following failed repair must remain safe from another request rebuilding or replacing its generation while it searches and resolves chunks. These are behavioral invariants and do not prescribe a particular lock implementation or require cross-process rebuild coordination.
+
+Preserve lazy `SentenceTransformer` initialization as vector-leg work. Importing retrieval code and preparing shared storage must not eagerly construct the query model. Concurrent initialization must reuse one successfully initialized model; a failed initialization must remain retryable on later requests and allow FTS fallback for the current request. Encoding or vector search failures must likewise preserve FTS fallback.
 
 ## 9. Reciprocal Rank Fusion
 
@@ -190,7 +254,7 @@ The fusion implementation must:
 * produce deterministic ordering;
 * support final truncation to `TOP_K`.
 
-Search weights may be configurable, but the default behavior must support equal weights.
+Search weights may be configurable, but the default weights remain equal.
 
 ## 10. Hybrid Retrieval Pipeline
 
@@ -243,18 +307,31 @@ TOP_K
 VECTOR_CANDIDATES
 FTS_CANDIDATES
 RRF_K
-FTS_INDEX_PATH
+RAG_DB_PATH
 QUERY_EXPANSION_MAX_TERMS
 QUERY_EXPANSION_TEMPERATURE
 ```
 
 Reasonable defaults must work without additional user configuration.
 
+`RAG_DB_PATH` configures the combined generated chunk and FTS database, defaulting to `rag.db`; `FAISS_INDEX_PATH` continues to configure `index.faiss`. The final storage configuration no longer requires `CHUNKS_PATH` or a separate `FTS_INDEX_PATH`. Other retrieval configuration requirements remain unchanged, including `TOP_K = 5` and default `RRF_K = 60`.
+
 ## 13. Tests
 
 Automated tests must cover the retrieval logic without requiring external network access.
 
 Required test areas:
+
+### Generated chunk storage and publication
+
+* `chunks` schema and round-trip public chunk dictionaries;
+* zero-based global IDs, specifically ID `0`, distinct from per-source `chunk_id`;
+* `FAISS vector position == chunks.id == chunks_fts.rowid` for the same exact ordered chunk list;
+* transactional SQLite schema, chunk, and FTS construction, including rollback on failure;
+* both staged artifacts complete, with real searchable FTS, before either final artifact is published;
+* failed staged generation construction preserving the previous published generation;
+* legacy `chunks.pkl` and `fts_index.db` ignored for runtime readiness, fallback, chunk mapping, FTS, and rebuild decisions, even when present with conflicting data;
+* legacy cleanup only after both final artifacts are published, with cleanup failure logged and leaving the new generation valid and legacy files ignored.
 
 ### Query expansion
 
@@ -274,6 +351,8 @@ Required test areas:
 * missing or unavailable index behavior;
 * mapping FTS results back to the correct chunks.
 
+Tests must exercise real `MATCH` queries against the explicitly rebuilt external-content FTS index, including `chunks_fts.rowid == chunks.id == 0`. Inserting chunks without the explicit FTS rebuild must not be treated as proof of a completed FTS generation; content-table reads alone are insufficient.
+
 ### RRF
 
 * rank calculation;
@@ -285,8 +364,13 @@ Required test areas:
 ### Hybrid retrieval
 
 * vector and FTS result fusion;
-* FTS failure fallback;
-* vector failure fallback;
+* FTS failure with readable chunks preserving vector fallback;
+* FAISS/vector failure with valid `rag.db` preserving FTS fallback, including failed rebuilds;
+* unavailable or corrupt chunk storage preventing unsafe ID resolution;
+* no mixed-generation ID-to-chunk mapping, including stale cached mappings after rebuild;
+* concurrent vector/FTS execution within and across healthy requests;
+* rebuild/fallback race safety with overlapping requests;
+* lazy vector model initialization, concurrent initialization, failure retry, and FTS fallback;
 * query-expansion fallback;
 * empty search results;
 * preservation of the public `retrieve()` result format.
@@ -322,6 +406,29 @@ Useful retrieval metrics include:
 
 Evaluation must report actual measured results rather than assume that hybrid retrieval is always superior.
 
+### Storage Migration Regression Contract
+
+Preserve strict regression comparison against the retained historical results. Frozen inputs and retained results must not be edited:
+
+* evaluation corpus: `src/docs/evaluation`;
+* challenge corpus: `src/docs/challenge`;
+* query files and expected labels: `bench/queries.json` and `bench/challenge_queries.json`;
+* challenge freeze manifest: `bench/challenge-inputs.sha256`;
+* retained results: `bench/results/vector-baseline.json`, `bench/results/vector-challenge-baseline.json`, `bench/results/hybrid-sanity.json`, and `bench/results/hybrid-challenge.json`.
+
+Compare each post-migration vector-only and hybrid run on both corpora with its corresponding retained historical result, preserving exactly:
+
+* ordered query IDs;
+* per-query `ranked_sources` and `expected_source_rank`;
+* per-query hit (`hit_at_5`) and reciprocal rank (`reciprocal_rank`);
+* overall Hit@5 and MRR@5;
+* per-category Hit@5 and MRR@5;
+* additionally for hybrid runs, per-query `expansion_inputs`.
+
+Latency equality is explicitly not required. New measurements must not overwrite retained historical result files.
+
+If rankings differ after the storage migration, treat the difference as a regression to investigate unless an independently identified storage bug proves otherwise. Do not tune prompts, queries, weights, candidate depths, corpora, labels, or benchmark fixtures merely to restore historical metrics.
+
 ## 15. Non-Goals
 
 The implementation does not require:
@@ -335,12 +442,14 @@ The implementation does not require:
 * adding a web interface;
 * redesigning document chunking unless testing demonstrates a concrete need.
 
+This storage change moves only generated chunk persistence into SQLite; source documents remain canonical source data outside SQLite. It does not include replacing FAISS, changing embedding behavior, query expansion, RRF/retrieval semantics, MCP, or final answer generation. It also excludes incremental mutation of published `rag.db`, SQLite synchronization triggers, cross-process rebuild coordination, cross-file transactional/crash-atomic publication, and benchmark tuning.
+
 ## 16. Completion Criteria
 
 The implementation is complete when:
 
 1. supported documents can be ingested and indexed successfully;
-2. FAISS and SQLite FTS5 indexes are created from the same chunk set;
+2. the only final generated retrieval artifacts are `index.faiss` and `rag.db`, built from the same exact ordered chunk list with `FAISS vector position == chunks.id == chunks_fts.rowid`, including ID `0`;
 3. query expansion runs before retrieval;
 4. malformed query-expansion output falls back safely;
 5. vector and FTS searches execute concurrently;
@@ -349,4 +458,7 @@ The implementation is complete when:
 8. either retrieval leg can fail without unnecessarily failing the whole query;
 9. existing callers of `retrieve()` remain compatible;
 10. automated retrieval tests pass;
-11. vector-only and hybrid retrieval can be compared with a reproducible evaluation script.
+11. vector-only and hybrid retrieval preserve the strict historical regression contract in Section 14;
+12. SQLite chunk and external-content FTS construction completes in one transaction, including explicit FTS rebuild and real `MATCH` searchability, before either staged artifact is published;
+13. failed staged construction preserves the previous published generation, and retrieval preserves failure isolation, generation-consistent mapping, rebuild/fallback race safety, healthy concurrency, and lazy vector model retry;
+14. `chunks.pkl` and standalone `fts_index.db` are absent from the final storage architecture and are not runtime dependencies; best-effort cleanup occurs only after both new artifacts are published, and any remaining legacy files are ignored.
