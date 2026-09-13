@@ -1,10 +1,11 @@
 """Hybrid integration tests with real threads and no external model calls."""
 
-from contextlib import ExitStack
+from contextlib import ExitStack, chdir
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 from pathlib import Path
 import pickle
+import sqlite3
 import sys
 from tempfile import TemporaryDirectory
 from threading import Barrier, Event, current_thread, main_thread
@@ -24,16 +25,19 @@ class HybridQueryTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         sys.path.insert(0, str(root / "src"))
         import config
+        from rag import store
 
         self.directory = directory = Path(stack.enter_context(TemporaryDirectory()))
         self.index_path = index_path = directory / "index.faiss"
         index_path.touch()
         self.chunks_path = chunks_path = directory / "chunks.pkl"
+        self.rag_path = directory / "rag.db"
         self.chunks = [
             {"text": f"chunk {i}", "source": f"source-{i}.txt", "chunk_id": 0}
             for i in range(8)
         ]
         chunks_path.write_bytes(pickle.dumps(self.chunks))
+        store.build_rag_db(self.chunks, self.rag_path)
         embedding = ModuleType("sentence_transformers")
         embedding.SentenceTransformer = Mock()
         self.constructor = embedding.SentenceTransformer
@@ -46,6 +50,7 @@ class HybridQueryTests(unittest.TestCase):
             patch.dict(sys.modules, {"sentence_transformers": embedding}),
             patch.object(config, "FAISS_INDEX_PATH", str(index_path)),
             patch.object(config, "CHUNKS_PATH", str(chunks_path)),
+            patch.object(config, "RAG_DB_PATH", str(self.rag_path)),
             patch.object(faiss, "read_index", return_value=Mock(ntotal=8)) as read_index,
         ):
             spec = importlib.util.spec_from_file_location(
@@ -251,7 +256,6 @@ class HybridQueryTests(unittest.TestCase):
             {"text": "oldneedle recovery instructions", "source": "old.txt", "chunk_id": 8},
         ]
         self.chunks_path.write_bytes(pickle.dumps(self.stored_chunks))
-        self.rag_path = self.directory / "rag.db"
         store.build_rag_db(self.stored_chunks, self.rag_path)
         if corrupt_faiss:
             self.index_path.write_bytes(b"corrupt FAISS data")
@@ -273,6 +277,65 @@ class HybridQueryTests(unittest.TestCase):
         self.assertEqual(self.query.chunks, self.stored_chunks)
         self.assertEqual(result, [self.stored_chunks[1]])
         self.assertIs(result[0], self.query.chunks[1])
+
+    def test_initial_loading_ignores_conflicting_missing_and_corrupt_pickle(self):
+        conflicting_chunks = [
+            {"text": "pickle must be ignored", "source": "wrong.txt", "chunk_id": 999},
+        ]
+        for retrieve in (self.query.retrieve, self.query.retrieve_vector):
+            for contents in (pickle.dumps(conflicting_chunks), None, b"invalid pickle"):
+                with self.subTest(retrieve=retrieve.__name__, contents=contents):
+                    self.prepare_real_artifacts()
+                    if contents is None:
+                        self.chunks_path.unlink()
+                    else:
+                        self.chunks_path.write_bytes(contents)
+                    with patch.object(self.query, "load_chunks",
+                                      wraps=self.query.load_chunks) as loader:
+                        result = retrieve("oldneedle")
+                    loader.assert_called_once_with(str(self.rag_path))
+                    self.assertEqual(self.query.chunks, self.stored_chunks)
+                    self.assertEqual(result, [self.stored_chunks[1], self.stored_chunks[0]])
+                    self.assertIs(result[0], self.query.chunks[1])
+                    self.assertIs(result[1], self.query.chunks[0])
+        self.rebuild.assert_not_called()
+
+    def test_populated_cache_is_reused_without_reading_database(self):
+        self.prepare_real_artifacts()
+        self.assertTrue(self.query._ensure_chunks_loaded())
+        loaded_chunks = self.query.chunks
+        with patch.object(self.query, "load_chunks") as loader:
+            self.assertTrue(self.query._ensure_chunks_loaded())
+            self.assertEqual(self.query.retrieve("oldneedle"),
+                             [self.stored_chunks[1], self.stored_chunks[0]])
+        loader.assert_not_called()
+        self.assertIs(self.query.chunks, loaded_chunks)
+        self.rebuild.assert_not_called()
+
+    def test_relative_rag_path_resolves_from_working_directory(self):
+        self.prepare_real_artifacts()
+        with (
+            chdir(self.directory),
+            patch.object(self.query, "RAG_DB_PATH", "rag.db"),
+            patch.object(self.query, "load_chunks", wraps=self.query.load_chunks) as loader,
+        ):
+            result = self.query.retrieve("oldneedle")
+        loader.assert_called_once_with("rag.db")
+        self.assertEqual(self.query.chunks, self.stored_chunks)
+        self.assertIs(result[0], self.query.chunks[1])
+        self.rebuild.assert_not_called()
+
+    def test_invalid_database_identity_prevents_chunk_mapping(self):
+        self.prepare_real_artifacts()
+        with sqlite3.connect(self.rag_path) as connection:
+            connection.execute("UPDATE chunks SET id = 2 WHERE id = 0")
+        with self.assertLogs(self.query.logger, level="WARNING") as logs:
+            self.assertEqual(self.query.retrieve("oldneedle"), [])
+        self.assertIn("Invalid chunk identity", " ".join(logs.output))
+        self.assertEqual(self.query.chunks, [])
+        self.rebuild.assert_called_once_with()
+        self.fts.assert_not_called()
+        self.constructor.assert_not_called()
 
     def test_healthy_retrievals_search_concurrently(self):
         self.prepare_real_artifacts()
@@ -452,15 +515,20 @@ class HybridQueryTests(unittest.TestCase):
 
     def test_unrecoverable_chunks_never_map_fts_ids(self):
         self.prepare_real_artifacts()
-        for contents in (None, b"corrupt pickle"):
+        for contents in (None, b"corrupt SQLite database"):
             with self.subTest(contents=contents):
+                self.query.chunks = []
+                self.query.index = None
                 if contents is None:
-                    self.chunks_path.unlink()
+                    self.rag_path.unlink()
                 else:
-                    self.chunks_path.write_bytes(contents)
+                    self.rag_path.write_bytes(contents)
                 with self.assertLogs(self.query.logger, level="WARNING"):
                     self.assertEqual(self.query.retrieve("oldneedle"), [])
+                self.assertEqual(self.query.chunks, [])
                 self.assertFalse(self.query._retrieval_lock.locked())
+        self.assertEqual(pickle.loads(self.chunks_path.read_bytes()), self.stored_chunks)
+        self.assertEqual(self.rebuild.call_count, 2)
         self.fts.assert_not_called()
         self.constructor.assert_not_called()
 
@@ -486,7 +554,6 @@ class HybridQueryTests(unittest.TestCase):
             self.assertTrue(expanded.is_set())
             self.fts.assert_not_called()
             self.constructor.assert_not_called()
-            self.chunks_path.write_bytes(pickle.dumps(new_chunks))
             index = faiss.IndexFlatIP(2)
             index.add(np.array([[0, 1], [1, 0]], dtype="float32"))
             faiss.write_index(index, str(self.index_path))
@@ -525,9 +592,8 @@ class HybridQueryTests(unittest.TestCase):
         from rag import store
 
         self.prepare_real_artifacts()
-        self.chunks_path.unlink()
+        self.rag_path.unlink()
         def rebuild():
-            self.chunks_path.write_bytes(pickle.dumps(self.stored_chunks))
             store.build_rag_db(self.stored_chunks, self.rag_path)
 
         self.rebuild.side_effect = rebuild
@@ -546,7 +612,6 @@ class HybridQueryTests(unittest.TestCase):
         new_chunks = [self.stored_chunks[1], self.stored_chunks[0]]
 
         def rebuild():
-            self.chunks_path.write_bytes(pickle.dumps(new_chunks))
             store.build_rag_db(new_chunks, self.rag_path)
 
         self.rebuild.side_effect = rebuild
@@ -559,13 +624,26 @@ class HybridQueryTests(unittest.TestCase):
         self.constructor.assert_not_called()
 
     def test_unreadable_rebuilt_chunks_do_not_use_cached_mapping(self):
-        self.prepare_real_artifacts(corrupt_faiss=True)
-        self.assertTrue(self.query._ensure_chunks_loaded())
-        self.rebuild.side_effect = lambda: self.chunks_path.write_bytes(b"unreadable new pickle")
-        with self.assertLogs(self.query.logger, level="WARNING"):
-            self.assertEqual(self.query.retrieve("oldneedle"), [])
-        self.assertEqual(self.query.chunks, [])
+        for contents in (None, b"unreadable new database"):
+            with self.subTest(contents=contents):
+                self.prepare_real_artifacts(corrupt_faiss=True)
+                self.assertTrue(self.query._ensure_chunks_loaded())
+
+                def rebuild():
+                    if contents is None:
+                        self.rag_path.unlink()
+                    else:
+                        self.rag_path.write_bytes(contents)
+
+                self.rebuild.side_effect = rebuild
+                with self.assertLogs(self.query.logger, level="WARNING") as logs:
+                    self.assertEqual(self.query.retrieve("oldneedle"), [])
+                self.assertEqual(self.query.chunks, [])
+                self.assertIsNone(self.query.index)
+                self.assertIn("Chunk loading failed", " ".join(logs.output))
+        self.assertEqual(self.rebuild.call_count, 2)
         self.fts.assert_not_called()
+        self.constructor.assert_not_called()
 
     def test_other_retrieval_cannot_rebuild_during_fts_search(self):
         self.prepare_real_artifacts(corrupt_faiss=True)

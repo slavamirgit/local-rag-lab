@@ -1,6 +1,5 @@
 import faiss
 import logging
-import pickle
 import requests
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +13,7 @@ from threading import Lock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     FAISS_INDEX_PATH,
-    CHUNKS_PATH,
+    RAG_DB_PATH,
     EMBEDDING_MODEL,
     OLLAMA_URL,
     OLLAMA_MODEL,
@@ -25,6 +24,7 @@ from config import (
 from rag.fts import search_fts
 from rag.fusion import reciprocal_rank_fusion
 from rag.query_expansion import expand_query
+from rag.store import load_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +54,12 @@ def _ensure_chunks_loaded(*, reload=False):
     if chunks and not reload:
         return True
     try:
-        with (Path(__file__).parent.parent / CHUNKS_PATH).open("rb") as file:
-            chunks = pickle.load(file)
+        chunks = load_chunks(RAG_DB_PATH)
         return True
     except Exception as exc:
         if reload:
             # A successful rebuild may have published new FTS IDs. Never map
-            # them through cached chunks if the new pickle cannot be loaded.
+            # them through cached chunks if the new database cannot be loaded.
             chunks = []
         logger.warning("Chunk loading failed: %s", exc)
         return False
