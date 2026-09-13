@@ -16,7 +16,7 @@ text of the same ordered chunks.
 
 ```text
 Documents → token chunks ─┬→ embeddings → FAISS (index.faiss)
-                         └→ SQLite chunks + FTS5 (rag.db)
+                         └→ SQLite chunks + FTS5 + generation metadata (rag.db)
 
 User query
     ↓
@@ -44,10 +44,14 @@ equal weights and one-based ranks: `sum(1 / (RRF_K + rank))`. Ties are resolved
 deterministically.
 
 The result contains up to `TOP_K` chunk dictionaries with `text`, `source`, and
-`chunk_id`, loaded from `rag.db` into the existing in-memory cache. Either search
-branch can fail while the other supplies contexts from readable chunk storage;
-if neither supplies usable contexts, retrieval returns an empty list. This
-fallback concerns retrieval; final answer generation still needs Ollama.
+`chunk_id`, loaded from `rag.db` into the existing in-memory cache. Query
+expansion failure uses the original query. FTS failure can fall back to a
+validated vector generation. FAISS loading, generation validation, model, or
+vector-search failure can fall back to readable, valid `rag.db` FTS. If canonical
+chunks are unreadable or corrupt, FAISS IDs are not mapped; if neither branch
+supplies usable contexts, retrieval returns an empty list. Mixed-generation ID
+mapping is prohibited. This fallback concerns retrieval; final answer generation
+still needs Ollama.
 
 `rag.query.retrieve_vector(query)` is a vector-only helper for reproduction and
 benchmarking. Application callers continue to use `retrieve(query)`.
@@ -57,13 +61,29 @@ benchmarking. Application callers continue to use `retrieve(query)`.
 | Artifact | Purpose |
 | --- | --- |
 | `index.faiss` | FAISS vector index |
-| `rag.db` | Generated `chunks` table and external-content FTS5 `chunks_fts` index over `chunks.text` |
+| `rag.db` | Generated `chunks`, external-content FTS5 `chunks_fts`, and `generation_meta` tables |
 
 Both artifacts are built from the same ordered chunk set and can be rebuilt.
 Source documents remain canonical source data; SQLite stores generated chunks
-and FTS5, while FAISS remains separate. Global retrieval IDs are zero-based
-`0..N-1`: `FAISS vector position == chunks.id == chunks_fts.rowid`.
-`chunk_id` remains the per-source-document ordinal.
+and retrieval metadata, while FAISS remains separate. No third manifest or
+generation artifact exists. Global retrieval IDs are zero-based `0..N-1`:
+`FAISS vector position == chunks.id == chunks_fts.rowid`. `chunk_id` remains the
+per-source-document ordinal.
+
+`generation_meta` contains exactly one row: `faiss_sha256` is
+the SHA-256 digest of the corresponding `index.faiss`, and `chunk_count` is its
+vector/chunk count. A readable FAISS file becomes vector-ready only after runtime
+verifies that digest and confirms
+`FAISS ntotal == generation_meta.chunk_count == loaded chunk count`. A compatible
+generation is cached in memory, so normal healthy requests do not repeatedly
+read and hash `index.faiss`.
+
+Each build fully constructs both artifacts in staged sibling files. It completely
+writes staged `index.faiss`, hashes those exact bytes, then builds `rag.db` with
+`chunks`, a real rebuilt external-content FTS index, and `generation_meta` in one
+SQLite transaction. Publication uses a separate atomic `os.replace` for each
+artifact; the pair is not published with cross-file transactional or crash-atomic
+semantics.
 
 Run application commands from `src`. With defaults, both artifacts are
 written there and documents are read from `src/docs/`. Relative
@@ -77,7 +97,10 @@ documents change. Restart a running assistant after rebuilding.
 **Migration note:** `chunks.pkl` and standalone `fts_index.db` are obsolete
 generated artifacts ignored by runtime. After successfully publishing both new
 artifacts, a build attempts to delete them best-effort; cleanup failures may
-leave them on disk without affecting retrieval.
+leave them on disk without affecting retrieval. A readable `rag.db` without
+valid generation metadata may still provide chunks and FTS fallback, but its
+existing FAISS file cannot be used for vector retrieval until the repair/rebuild
+path establishes a coherent generation.
 
 ## Setup and usage
 
@@ -124,7 +147,7 @@ Current defaults in [src/config.py](src/config.py):
 | `OLLAMA_MODEL` | `"qwen3:0.6b"` | Local model for expansion and answer/MCP decisions |
 | `OLLAMA_URL` | `"http://localhost:11434/api/generate"` | Expansion and answer-generation endpoint |
 | `FAISS_INDEX_PATH` | `"index.faiss"` | Vector index path |
-| `RAG_DB_PATH` | `"rag.db"` | Generated chunks and FTS5 path, relative to cwd when not absolute |
+| `RAG_DB_PATH` | `"rag.db"` | Generated chunks, FTS5, and generation metadata path, relative to cwd when not absolute |
 | `TOP_K` | `5` | Maximum final chunks |
 | `VECTOR_CANDIDATES` | `20` | Vector candidate depth before fusion |
 | `FTS_CANDIDATES` | `20` | Lexical candidate depth before fusion |

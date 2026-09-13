@@ -8,7 +8,7 @@ A local Q&A system using hybrid RAG (Retrieval-Augmented Generation), Ollama's
 - Recursive ingestion of `.txt`, `.md`, `.pdf`, and `.docx` documents.
 - Token chunking with tiktoken (`cl100k_base`), 700 tokens per chunk and 100-token overlap.
 - SentenceTransformers embeddings and FAISS semantic search.
-- Generated chunk storage and persistent SQLite FTS5 lexical search in `rag.db`.
+- Generated chunks, persistent SQLite FTS5 search, and generation identity in `rag.db`.
 - Local Qwen Query Expansion, parallel vector/FTS searches, and Reciprocal Rank Fusion.
 - Retrieval fallback when expansion or an individual search branch fails.
 - Local answer generation with source attribution and optional MCP document access.
@@ -72,7 +72,7 @@ local-rag-lab/
     │   └── client.py         # MCP subprocess client
     ├── docs/                 # Default source document directory
     ├── index.faiss           # Generated vector index
-    ├── rag.db                # Generated chunks and FTS5 (with src as cwd)
+    ├── rag.db                # Generated chunks, FTS5, and generation metadata
     ├── requirements.txt
     ├── COMMANDS.md
     └── README.md
@@ -83,11 +83,20 @@ local-rag-lab/
 `build-index` loads documents, creates token chunks, generates embeddings, and
 builds both artifacts from the same ordered chunk set: `index.faiss` and `rag.db`.
 FAISS remains separate; `rag.db` stores the generated `chunks` table and an
-external-content FTS5 `chunks_fts` index over `chunks.text`. Source documents
-remain canonical source data, and both artifacts are derived and rebuildable.
-Global retrieval IDs are zero-based `0..N-1`, with
+external-content FTS5 `chunks_fts` index over `chunks.text`, plus one
+`generation_meta` row containing `faiss_sha256` and `chunk_count`. There is no
+third manifest or generation artifact. Source documents remain canonical source
+data, and both artifacts are derived and rebuildable. Global retrieval IDs are
+zero-based `0..N-1`, with
 `FAISS vector position == chunks.id == chunks_fts.rowid`. The `chunk_id` field
 remains the per-source-document ordinal.
+
+Both artifacts are fully constructed in staged sibling files. Staged
+`index.faiss` is completely written first and SHA-256 is computed from those
+exact bytes. Staged `rag.db` then creates the chunks, explicitly rebuilt real
+external-content FTS index, and generation metadata in one SQLite transaction.
+Publication uses separate atomic `os.replace` operations and does not provide a
+cross-file transaction or crash-atomic replacement of the pair.
 
 Relative `FAISS_INDEX_PATH` values resolve relative to `src`.
 `DOCUMENTS_DIR` and `RAG_DB_PATH` use normal `Path` semantics: relative values
@@ -95,8 +104,15 @@ resolve from the current working directory. Absolute paths remain absolute.
 Running builds and the application from `src` keeps the default documents and
 both artifacts in the locations shown above.
 
-Readiness can attempt an automatic build if SQLite chunks or FAISS cannot be
-loaded. FTS failures with readable chunk storage allow vector fallback.
+Readiness can attempt an automatic repair/build. A readable `index.faiss` is
+accepted for vector retrieval only when its SHA-256 matches
+`generation_meta.faiss_sha256` and
+`FAISS ntotal == generation_meta.chunk_count == loaded chunk count`. Validated
+generations are cached in memory, avoiding repeated file reads and hashing on
+normal healthy requests. An incompatible pair, missing or invalid generation
+metadata, or any other unproven generation leaves vector retrieval unavailable
+and its IDs unused. Readable valid chunks and FTS in `rag.db` remain eligible for
+lexical fallback and may support repair.
 Run `build-index` to rebuild both artifacts after adding or updating documents,
 then restart a running assistant so it loads the rebuilt artifacts.
 
@@ -104,6 +120,9 @@ then restart a running assistant so it loads the rebuilt artifacts.
 generated artifacts ignored by runtime. A build attempts to delete them
 best-effort only after both new artifacts are successfully published; cleanup
 failures may leave them on disk without affecting retrieval.
+
+A readable older-format `rag.db` without generation metadata can therefore
+support FTS, but its existing FAISS file cannot be trusted until repaired.
 
 ## Retrieval and answer flow
 
@@ -117,9 +136,12 @@ failures may leave them on disk without affecting retrieval.
 4. RRF behavior is unchanged: it combines rankings using equal weights and
    one-based ranks, summing `1 / (RRF_K + rank)` for each chunk. Ties use chunk position.
 5. Retrieval returns up to `TOP_K` dictionaries containing `text`, `source`, and
-   `chunk_id`, loaded from `rag.db` into the existing in-memory cache. If one
-   branch fails or is empty, the other can supply contexts from readable chunks;
-   if neither supplies usable results, retrieval returns an empty list.
+   `chunk_id`, loaded from `rag.db` into the existing in-memory cache. FTS failure
+   can use a validated vector generation; FAISS/generation validation, model, or
+   vector failure can use readable valid FTS. Unreadable or corrupt canonical
+   chunks prevent unsafe vector ID mapping. Mixed-generation mapping is
+   prohibited. If neither branch supplies usable results, retrieval returns an
+   empty list.
 6. The existing assistant decides whether to use MCP tools, builds the context
    prompt, appends any tool output, and asks Ollama for the final answer.
 
@@ -140,7 +162,7 @@ Edit [config.py](config.py); current defaults are:
 | `OLLAMA_MODEL` | `"qwen3:0.6b"` | Expansion, MCP decisions, and final answers |
 | `OLLAMA_URL` | `"http://localhost:11434/api/generate"` | Expansion and answer HTTP endpoint |
 | `FAISS_INDEX_PATH` | `"index.faiss"` | Vector index path, relative to src when not absolute |
-| `RAG_DB_PATH` | `"rag.db"` | Generated chunks and FTS5 path, relative to cwd when not absolute |
+| `RAG_DB_PATH` | `"rag.db"` | Generated chunks, FTS5, and generation metadata path, relative to cwd when not absolute |
 | `TOP_K` | `5` | Maximum final chunks |
 | `VECTOR_CANDIDATES` / `FTS_CANDIDATES` | `20` / `20` | Candidate depths before fusion |
 | `RRF_K` | `60` | RRF rank constant |

@@ -78,8 +78,9 @@ PyTorch uses one CPU thread to reduce run-to-run scheduling variation. The model
 chunking, TOP_K=5, normalization, and FAISS IndexFlatIP behavior are unchanged.
 The script never calls answer generation or Ollama.
 
-Current production index construction builds generated chunks and an
-external-content FTS5 index in `rag.db` from the same ordered chunks as FAISS.
+Current production index construction builds generated chunks, a rebuilt
+external-content FTS5 index, and FAISS SHA-256/chunk-count generation metadata
+in the `generation_meta` table of `rag.db`, from the same ordered chunks as FAISS.
 Benchmark rebuilds write `index.faiss` and `rag.db` to
 `bench/.runtime/<dataset>/`, where dataset is `sanity` or
 `challenge`. Measured retrieval remains vector-only through `rag.query.retrieve_vector`;

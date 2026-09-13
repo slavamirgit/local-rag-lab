@@ -51,9 +51,14 @@ This loads documents recursively, splits them into 700-token chunks with
 100-token overlap, generates embeddings, and builds:
 
 - `index.faiss`: FAISS vector index.
-- `rag.db`: generated chunk dictionaries and an external-content SQLite FTS5 index.
+- `rag.db`: generated `chunks`, external-content FTS5 `chunks_fts`, and
+  `generation_meta` containing the matching FAISS SHA-256 and chunk count.
 
-Both artifacts are built from the same ordered chunk set.
+Both artifacts are built from the same ordered chunk set; no third generation
+artifact is created. The build completely writes and hashes staged `index.faiss`,
+then constructs chunks, rebuilt FTS, and metadata in staged `rag.db` in one
+SQLite transaction. Separate atomic replacements publish the files, without a
+cross-file transaction or crash-atomic publication of the pair.
 
 The equivalent direct build command, **while in `src`**, is:
 
@@ -62,7 +67,10 @@ The equivalent direct build command, **while in `src`**, is:
 ```
 
 Use this build command to rebuild both artifacts. Readiness may also attempt a
-build when SQLite chunks or FAISS cannot be loaded.
+build when SQLite chunks or FAISS cannot be loaded or proven coherent. Vector
+readiness requires the published FAISS SHA-256 and vector count to match the
+metadata and loaded chunk count. Readable valid FTS remains available when that
+validation fails or metadata is missing.
 
 Relative `FAISS_INDEX_PATH` values resolve relative to `src`.
 `DOCUMENTS_DIR` (default `./docs`) and `RAG_DB_PATH` (default `rag.db`)
