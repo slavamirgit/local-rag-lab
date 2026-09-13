@@ -25,15 +25,25 @@ DATASETS = {
     ),
 }
 CHALLENGE_MANIFEST = ROOT / "bench/challenge-inputs.sha256"
+PROTECTED_RESULT_PATHS = (
+    ROOT / "bench/results/vector-baseline.json",
+    ROOT / "bench/results/vector-challenge-baseline.json",
+    ROOT / "bench/results/hybrid-sanity.json",
+    ROOT / "bench/results/hybrid-challenge.json",
+)
 
 
-def validate_output_path(output, historical):
-    """Require an explicit destination distinct from the retained historical path."""
-    if output is None or output.resolve() == historical.resolve():
-        raise ValueError(
-            f"Refusing historical result destination {historical}; "
-            "use --output with a different path"
-        )
+def validate_output_path(output):
+    """Require an explicit destination distinct from all retained historical paths."""
+    if output is None:
+        raise ValueError("An explicit output destination is required; use --output")
+    resolved = output.resolve()
+    for historical in PROTECTED_RESULT_PATHS:
+        if resolved == historical.resolve():
+            raise ValueError(
+                f"Refusing historical result destination {historical}; "
+                "use --output with a different path"
+            )
     return output
 
 
@@ -63,10 +73,10 @@ def main():
     parser.add_argument("--dataset", choices=DATASETS, default="sanity")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    corpus_name, queries_name, result_name = DATASETS[args.dataset]
+    corpus_name, queries_name, _ = DATASETS[args.dataset]
     corpus = ROOT / corpus_name
     queries_path = ROOT / queries_name
-    output = validate_output_path(args.output, ROOT / "bench/results" / result_name)
+    output = validate_output_path(args.output)
 
     files = sorted(corpus.glob("*.txt"))
     queries = json.loads(queries_path.read_text(encoding="utf-8"))

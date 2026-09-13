@@ -121,7 +121,7 @@ def main():
     parser.add_argument("--dataset", choices=DATASETS, default="sanity")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    output = validate_output_path(args.output, ROOT / f"bench/results/hybrid-{args.dataset}.json")
+    output = validate_output_path(args.output)
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite {output}; use --output with a new path")
     corpus_name, queries_name, vector_name = DATASETS[args.dataset]

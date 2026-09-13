@@ -5,57 +5,145 @@ from copy import deepcopy
 from io import StringIO
 import json
 from pathlib import Path
-import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 from bench import storage_regression as regression
+from bench import vector_baseline
 from bench.vector_baseline import validate_output_path
+
+with patch.dict(sys.modules, {"vector_baseline": vector_baseline}):
+    from bench import hybrid_benchmark
 
 
 class BenchmarkOutputGuardTests(unittest.TestCase):
-    def test_runners_reject_default_and_explicit_historical_destinations(self):
-        for run, name in regression.REFERENCES.items():
-            mode, dataset = run.split("-")
-            runner = "vector_baseline.py" if mode == "vector" else "hybrid_benchmark.py"
-            historical = regression.ROOT / "bench/results" / name
-            for output_args in ([], ["--output", str(historical)],
-                                ["--output", f"bench/results/../results/{name}"]):
-                with self.subTest(run=run, output_args=output_args):
-                    process = subprocess.run(
-                        [sys.executable, str(regression.ROOT / "bench" / runner),
-                         "--dataset", dataset, *output_args],
-                        cwd=regression.ROOT, capture_output=True, text=True, timeout=5,
-                    )
-                    self.assertNotEqual(process.returncode, 0)
-                    self.assertIn(f"Refusing historical result destination {historical}",
-                                  process.stderr)
-                    self.assertIn("use --output with a different path", process.stderr)
+    def setUp(self):
+        # A guard regression must never reach model loading or network work.
+        self.enterContext(patch.dict(sys.modules, {
+            name: None for name in ("config", "numpy", "torch", "rag", "requests")
+        }))
 
-    def test_guard_rejects_absent_historical_files_and_symlink_aliases(self):
+    def assert_runner_rejects(self, run, output, message):
+        mode, dataset = run.split("-")
+        runner = vector_baseline if mode == "vector" else hybrid_benchmark
+        output_args = [] if output is None else ["--output", str(output)]
+        with patch.object(sys, "argv", [runner.__file__, "--dataset", dataset, *output_args]), \
+                patch.object(Path, "read_text", side_effect=AssertionError("Input read")) as read:
+            with self.assertRaises(ValueError) as raised:
+                runner.main()
+            self.assertIn(message, str(raised.exception))
+            read.assert_not_called()
+
+    def test_guard_rejects_all_four_historical_destinations(self):
+        expected = tuple(regression.ROOT / "bench/results" / name
+                         for name in regression.REFERENCES.values())
+        self.assertEqual(set(vector_baseline.PROTECTED_RESULT_PATHS), set(expected))
+        self.assertEqual(len(vector_baseline.PROTECTED_RESULT_PATHS), 4)
+        self.assertIs(hybrid_benchmark.validate_output_path, validate_output_path)
+        for historical in expected:
+            with self.subTest(historical=historical):
+                with self.assertRaisesRegex(ValueError, "Refusing historical result destination"):
+                    validate_output_path(historical)
+
+    def test_guard_requires_explicit_output(self):
+        with self.assertRaisesRegex(ValueError, "use --output"):
+            validate_output_path(None)
+        for run in regression.REFERENCES:
+            with self.subTest(run=run):
+                self.assert_runner_rejects(run, None, "use --output")
+
+    def test_all_runner_datasets_reject_all_historical_destinations_and_dotdot_aliases(self):
+        # Includes vector sanity -> vector challenge and both hybrid references,
+        # and both hybrid datasets -> both vector references.
+        for run in regression.REFERENCES:
+            for name in regression.REFERENCES.values():
+                historical = regression.ROOT / "bench/results" / name
+                for output in (historical, Path("bench/results") / name,
+                               regression.ROOT / "bench/results/../results" / name):
+                    with self.subTest(run=run, output=output):
+                        self.assert_runner_rejects(
+                            run, output, f"Refusing historical result destination {historical}"
+                        )
+
+    def test_guard_rejects_dotdot_aliases(self):
+        for historical in vector_baseline.PROTECTED_RESULT_PATHS:
+            alias = historical.parent / ".." / "results" / historical.name
+            with self.subTest(alias=alias):
+                with self.assertRaisesRegex(ValueError, "Refusing historical result destination"):
+                    validate_output_path(alias)
+
+    def test_guard_and_runners_reject_symlink_aliases(self):
+        with TemporaryDirectory() as directory:
+            for historical in vector_baseline.PROTECTED_RESULT_PATHS:
+                alias = Path(directory) / historical.name
+                alias.symlink_to(historical)
+                with self.subTest(historical=historical):
+                    with self.assertRaisesRegex(ValueError, "Refusing historical result destination"):
+                        validate_output_path(alias)
+                    for run in regression.REFERENCES:
+                        with self.subTest(run=run):
+                            self.assert_runner_rejects(run, alias, "Refusing historical result destination")
+
+    def test_guard_and_runners_reject_absent_historical_files_and_dangling_symlinks(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in regression.REFERENCES.values():
-                with self.subTest(name=name):
-                    historical = root / name
-                    self.assertFalse(historical.exists())
-                    alias = root / f"alias-{name}"
-                    alias.symlink_to(historical)
-                    for output in (None, historical, alias):
-                        with self.assertRaisesRegex(ValueError, "use --output"):
-                            validate_output_path(output, historical)
-                    self.assertFalse(historical.exists())
+            historical_paths = tuple(root / path.relative_to(vector_baseline.ROOT)
+                                     for path in vector_baseline.PROTECTED_RESULT_PATHS)
+            with patch.object(vector_baseline, "PROTECTED_RESULT_PATHS", historical_paths):
+                for historical in historical_paths:
+                    with self.subTest(historical=historical):
+                        self.assertFalse(historical.exists())
+                        alias = root / f"alias-{historical.name}"
+                        alias.symlink_to(historical)
+                        for output in (historical, alias):
+                            with self.assertRaisesRegex(ValueError, "Refusing historical result destination"):
+                                validate_output_path(output)
+                            for run in regression.REFERENCES:
+                                with self.subTest(run=run, output=output):
+                                    self.assert_runner_rejects(
+                                        run, output, "Refusing historical result destination"
+                                    )
+                        self.assertFalse(historical.exists())
 
     def test_guard_leaves_candidate_existence_and_contents_unchanged(self):
         with TemporaryDirectory() as directory:
-            historical = Path(directory) / "historical.json"
             candidate = Path(directory) / "candidate.json"
-            self.assertIs(validate_output_path(candidate, historical), candidate)
+            self.assertIs(validate_output_path(candidate), candidate)
             self.assertFalse(candidate.exists())
             candidate.write_text("existing candidate", encoding="utf-8")
-            self.assertIs(validate_output_path(candidate, historical), candidate)
+            self.assertIs(validate_output_path(candidate), candidate)
+            self.assertEqual(candidate.read_text(encoding="utf-8"), "existing candidate")
+        relative_candidate = Path("bench/results/../results/candidate.json")
+        self.assertIs(validate_output_path(relative_candidate), relative_candidate)
+
+    def test_vector_allows_existing_candidate_before_input_loading(self):
+        with TemporaryDirectory() as directory:
+            candidate = Path(directory) / "candidate.json"
+            candidate.write_text("existing candidate", encoding="utf-8")
+            for dataset in vector_baseline.DATASETS:
+                with self.subTest(dataset=dataset), \
+                        patch.object(sys, "argv", [vector_baseline.__file__, "--dataset", dataset,
+                                                   "--output", str(candidate)]), \
+                        patch.object(Path, "read_text", side_effect=RuntimeError("Input loading")) as read:
+                    with self.assertRaisesRegex(RuntimeError, "Input loading"):
+                        vector_baseline.main()
+                    read.assert_called_once_with(encoding="utf-8")
+            self.assertEqual(candidate.read_text(encoding="utf-8"), "existing candidate")
+
+    def test_hybrid_refuses_existing_candidate_before_input_loading(self):
+        with TemporaryDirectory() as directory:
+            candidate = Path(directory) / "candidate.json"
+            candidate.write_text("existing candidate", encoding="utf-8")
+            for dataset in vector_baseline.DATASETS:
+                with self.subTest(dataset=dataset), \
+                        patch.object(sys, "argv", [hybrid_benchmark.__file__, "--dataset", dataset,
+                                                   "--output", str(candidate)]), \
+                        patch.object(Path, "read_text", side_effect=AssertionError("Input read")) as read:
+                    with self.assertRaisesRegex(FileExistsError, "Refusing to overwrite"):
+                        hybrid_benchmark.main()
+                    read.assert_not_called()
             self.assertEqual(candidate.read_text(encoding="utf-8"), "existing candidate")
 
 
