@@ -43,10 +43,10 @@ class BuildIndexTests(unittest.TestCase):
 
         self.fts = fts
         self.store = store
-        self.fts_path = self.directory / "fts_index.db"
+        self.legacy_path = self.directory / "fts_index.db"
+        self.legacy_bytes = b"legacy sentinel: must never be read or replaced"
         self.rag_path = self.directory / "rag.db"
-        stack.enter_context(patch.object(fts, "FTS_INDEX_PATH", str(self.fts_path)))
-        stack.enter_context(patch.object(self.builder, "FTS_INDEX_PATH", str(self.fts_path)))
+        stack.enter_context(patch.object(fts, "RAG_DB_PATH", str(self.rag_path)))
         stack.enter_context(patch.object(self.builder, "RAG_DB_PATH", str(self.rag_path)))
         stack.enter_context(patch.object(self.builder, "FAISS_INDEX_PATH", str(self.directory / "index.faiss")))
         stack.enter_context(patch.object(self.builder, "CHUNKS_PATH", str(self.directory / "chunks.pkl")))
@@ -59,7 +59,6 @@ class BuildIndexTests(unittest.TestCase):
         self.ingest = stack.enter_context(patch.object(self.builder, "ingest_documents", return_value=self.documents))
         self.chunk = stack.enter_context(patch.object(self.builder, "chunk_documents", return_value=self.chunks))
         self.embed = embedding.embed_chunks
-        self.build_fts = stack.enter_context(patch.object(self.builder, "build_fts_index", wraps=fts.build_fts_index))
         self.build_rag = stack.enter_context(patch.object(self.builder, "build_rag_db", wraps=store.build_rag_db))
 
     def seed_old_generation(self):
@@ -72,7 +71,7 @@ class BuildIndexTests(unittest.TestCase):
         faiss.write_index(index, str(self.directory / "index.faiss"))
         with (self.directory / "chunks.pkl").open("wb") as file:
             pickle.dump(self.old_chunks, file)
-        self.fts.build_fts_index(self.old_chunks, index_path=self.fts_path)
+        self.legacy_path.write_bytes(self.legacy_bytes)
         self.store.build_rag_db(self.old_chunks, self.rag_path)
         self.assert_rag_contents(self.rag_path, self.old_chunks)
         self.assertEqual(self.fts.search_fts("oldneedle"), [1])
@@ -82,7 +81,7 @@ class BuildIndexTests(unittest.TestCase):
     def artifact_bytes(self):
         return {
             name: (self.directory / name).read_bytes()
-            for name in ("index.faiss", "chunks.pkl", "fts_index.db", "rag.db")
+            for name in ("index.faiss", "chunks.pkl", "rag.db")
         }
 
     def assert_rag_contents(self, path, chunks):
@@ -105,28 +104,28 @@ class BuildIndexTests(unittest.TestCase):
         self.assertEqual(self.fts.search_fts("oldneedle"), [1])
         self.assertEqual(chunks[1], self.old_chunks[1])
         self.assertEqual(self.fts.search_fts("newneedle"), [])
-        self.assertEqual({path.name for path in self.directory.iterdir()}, set(before))
+        self.assertEqual(self.legacy_path.read_bytes(), self.legacy_bytes)
+        self.assertEqual({path.name for path in self.directory.iterdir()},
+                         set(before) | {self.legacy_path.name})
 
     def test_success_shares_ordered_chunks_and_persists_all_artifacts(self):
         self.seed_old_generation()
         replace = self.builder.os.replace
 
         def publish(source, destination):
-            # Even the first replacement must wait for all four completed files.
+            # Even the first replacement must wait for all three completed files.
             if replacements.call_count == 1:
-                self.build_fts.assert_called_once()
                 self.build_rag.assert_called_once()
                 staged_index, = self.directory.glob(".index.faiss.*.tmp")
                 staged_chunks, = self.directory.glob(".chunks.pkl.*.tmp")
-                staged_fts = self.build_fts.call_args.kwargs["index_path"]
                 staged_rag = self.build_rag.call_args.args[1]
                 self.assertEqual(
                     set(self.directory.glob(".*.tmp")),
-                    {staged_index, staged_chunks, staged_fts, staged_rag},
+                    {staged_index, staged_chunks, staged_rag},
                 )
                 self.assertEqual(faiss.read_index(str(staged_index)).ntotal, len(self.chunks))
                 self.assertEqual(pickle.loads(staged_chunks.read_bytes()), self.chunks)
-                self.assertEqual(self.fts.search_fts("newneedle", index_path=staged_fts), [0])
+                self.assertEqual(self.fts.search_fts("newneedle", db_path=staged_rag), [0])
                 self.assert_rag_contents(staged_rag, self.chunks)
             self.assertEqual(Path(source).parent, Path(destination).parent)
             replace(source, destination)
@@ -136,7 +135,11 @@ class BuildIndexTests(unittest.TestCase):
             patch.object(self.builder.pickle, "dump", wraps=pickle.dump) as dump,
         ):
             self.builder.build_index()
-        self.assertEqual(replacements.call_count, 4)
+        self.assertEqual(replacements.call_count, 3)
+        self.assertEqual(
+            [Path(call.args[1]) for call in replacements.call_args_list],
+            [self.directory / "index.faiss", self.directory / "chunks.pkl", self.rag_path],
+        )
         dump.assert_called_once()
         self.assertIs(dump.call_args.args[0], self.chunks)
 
@@ -144,11 +147,6 @@ class BuildIndexTests(unittest.TestCase):
         self.chunk.assert_called_once_with(self.documents)
         self.embed.assert_called_once_with(self.chunks)
         self.assertIs(self.embed.call_args.args[0], self.chunks)
-        self.build_fts.assert_called_once()
-        self.assertIs(self.build_fts.call_args.args[0], self.chunks)
-        staged_fts = self.build_fts.call_args.kwargs["index_path"]
-        self.assertEqual(staged_fts.parent, self.fts_path.parent)
-        self.assertNotEqual(staged_fts, self.fts_path)
         self.build_rag.assert_called_once()
         self.assertIs(self.build_rag.call_args.args[0], self.chunks)
         staged_rag = self.build_rag.call_args.args[1]
@@ -162,48 +160,19 @@ class BuildIndexTests(unittest.TestCase):
         self.assertEqual(index.ntotal, len(self.chunks))
         np.testing.assert_allclose(index.reconstruct_n(0, 3), [[1, 0], [0, 1], [0.6, 0.8]])
 
-        with closing(sqlite3.connect(self.fts_path)) as connection:
+        with closing(sqlite3.connect(self.rag_path)) as connection:
             self.assertEqual(connection.execute(
-                "SELECT rowid - 1, text FROM chunks_fts ORDER BY rowid"
+                "SELECT rowid, text FROM chunks_fts ORDER BY rowid"
             ).fetchall(), list(enumerate(chunk["text"] for chunk in self.chunks)))
         for position, chunk in enumerate(self.chunks):
             self.assertEqual(self.fts.search_fts(chunk["text"]), [position])
         self.assertEqual(self.fts.search_fts("oldneedle"), [])
         self.assert_rag_contents(self.rag_path, self.chunks)
+        self.assertEqual(self.legacy_path.read_bytes(), self.legacy_bytes)
         self.assertEqual(
             {path.name for path in self.directory.iterdir()},
             {"index.faiss", "chunks.pkl", "fts_index.db", "rag.db"},
         )
-
-    def test_fts_build_failure_preserves_old_generation_and_cleans_staging(self):
-        before = self.seed_old_generation()
-        error = sqlite3.OperationalError("FTS build failed")
-
-        def fail_fts(chunks, *, index_path):
-            self.assertIs(chunks, self.chunks)
-            staged_index, = self.directory.glob(".index.faiss.*.tmp")
-            staged_chunks, = self.directory.glob(".chunks.pkl.*.tmp")
-            self.assertEqual(faiss.read_index(str(staged_index)).ntotal, len(self.chunks))
-            self.assertEqual(pickle.loads(staged_chunks.read_bytes()), self.chunks)
-            self.assertEqual(self.artifact_bytes(), before)
-            # Exercise cleanup after FTS has written data, including sidecars.
-            self.fts.build_fts_index(chunks, index_path=index_path)
-            for suffix in ("-journal", "-wal", "-shm"):
-                Path(str(index_path) + suffix).write_bytes(b"partial SQLite data")
-            raise error
-
-        self.build_fts.side_effect = fail_fts
-        with (
-            patch.object(self.builder.os, "replace") as replacements,
-            self.assertRaises(sqlite3.OperationalError) as raised,
-        ):
-            self.builder.build_index()
-        self.assertIs(raised.exception, error)
-        replacements.assert_not_called()
-        self.build_fts.assert_called_once()
-        self.build_rag.assert_not_called()
-        self.assert_old_generation_unchanged(before)
-        self.assertNotIn("Indexing complete", self.output.getvalue())
 
     def test_rag_build_failure_preserves_old_generation_and_cleans_staging(self):
         before = self.seed_old_generation()
@@ -215,10 +184,8 @@ class BuildIndexTests(unittest.TestCase):
             self.assertEqual(db_path.parent, self.rag_path.parent)
             staged_index, = self.directory.glob(".index.faiss.*.tmp")
             staged_chunks, = self.directory.glob(".chunks.pkl.*.tmp")
-            staged_fts = self.build_fts.call_args.kwargs["index_path"]
             self.assertEqual(faiss.read_index(str(staged_index)).ntotal, len(self.chunks))
             self.assertEqual(pickle.loads(staged_chunks.read_bytes()), self.chunks)
-            self.assertEqual(self.fts.search_fts("newneedle", index_path=staged_fts), [0])
             self.assertEqual(self.artifact_bytes(), before)
             # Fail inside the real SQLite transaction, after inserting chunks.
             with patch.object(self.store, "_rebuild_fts", side_effect=error):
@@ -270,21 +237,7 @@ class BuildIndexTests(unittest.TestCase):
                 self.assertIs(raised.exception, error)
                 replacements.assert_not_called()
             self.assert_old_generation_unchanged(before)
-        self.build_fts.assert_not_called()
         self.build_rag.assert_not_called()
-
-    def test_fts_failure_on_first_build_publishes_nothing(self):
-        error = sqlite3.OperationalError("first FTS build failed")
-        self.build_fts.side_effect = error
-        with (
-            patch.object(self.builder.os, "replace") as replacements,
-            self.assertRaises(sqlite3.OperationalError) as raised,
-        ):
-            self.builder.build_index()
-        self.assertIs(raised.exception, error)
-        replacements.assert_not_called()
-        self.build_rag.assert_not_called()
-        self.assertEqual(list(self.directory.iterdir()), [])
 
     def test_rag_failure_on_first_build_publishes_nothing(self):
         error = sqlite3.OperationalError("first rag.db build failed")
@@ -309,16 +262,15 @@ class BuildIndexTests(unittest.TestCase):
             patch.object(self.builder, "__file__", str(src_dir / "rag/build_index.py")),
             patch.object(self.builder, "FAISS_INDEX_PATH", "index.faiss"),
             patch.object(self.builder, "CHUNKS_PATH", "chunks.pkl"),
-            patch.object(self.builder, "FTS_INDEX_PATH", "lexical/fts_index.db"),
             patch.object(self.builder, "RAG_DB_PATH", "storage/rag.db"),
         ):
             self.builder.build_index()
         self.assertEqual(
             {str(path.relative_to(self.directory)) for path in self.directory.rglob("*") if path.is_file()},
-            {"src/index.faiss", "src/chunks.pkl", "working/lexical/fts_index.db", "working/storage/rag.db"},
+            {"src/index.faiss", "src/chunks.pkl", "working/storage/rag.db"},
         )
         self.assertEqual(
-            self.fts.search_fts("newneedle", index_path=cwd / "lexical/fts_index.db"), [0]
+            self.fts.search_fts("newneedle", db_path=cwd / "storage/rag.db"), [0]
         )
         self.assert_rag_contents(cwd / "storage/rag.db", self.chunks)
 
@@ -327,7 +279,6 @@ class BuildIndexTests(unittest.TestCase):
         self.builder.build_index()
         self.chunk.assert_not_called()
         self.embed.assert_not_called()
-        self.build_fts.assert_not_called()
         self.build_rag.assert_not_called()
         self.assertEqual(list(self.directory.iterdir()), [])
 
@@ -337,7 +288,6 @@ class BuildIndexTests(unittest.TestCase):
         self.builder.build_index()
         self.chunk.assert_not_called()
         self.embed.assert_not_called()
-        self.build_fts.assert_not_called()
         self.build_rag.assert_not_called()
         self.assert_old_generation_unchanged(before)
 

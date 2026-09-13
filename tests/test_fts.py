@@ -6,24 +6,24 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from src.rag import fts
+from src.rag import fts, store
 
 
 class FTSTests(unittest.TestCase):
     def setUp(self):
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.path = Path(directory.name) / "nested" / "fts_index.db"
+        self.path = Path(directory.name) / "nested" / "rag.db"
 
     def build(self, texts):
         # Per-document chunk IDs deliberately differ from global list positions.
         chunks = [{"text": text, "source": f"source_{i}.txt", "chunk_id": 0}
                   for i, text in enumerate(texts)]
-        fts.build_fts_index(chunks, self.path)
+        store.build_rag_db(chunks, self.path)
         return chunks
 
     def search(self, inputs, limit=None):
-        return fts.search_fts(inputs, limit=limit, index_path=self.path)
+        return fts.search_fts(inputs, limit=limit, db_path=self.path)
 
     def test_persistent_index_maps_to_supplied_list_positions(self):
         chunks = self.build(["zirconium", "hafnium", "tantalum"])
@@ -34,7 +34,7 @@ class FTSTests(unittest.TestCase):
                 self.assertEqual(chunks[self.search(chunk["text"])[0]], chunk)
         with closing(sqlite3.connect(self.path)) as connection:
             self.assertEqual(connection.execute(
-                "SELECT rowid - 1, text FROM chunks_fts ORDER BY rowid"
+                "SELECT rowid, text FROM chunks_fts ORDER BY rowid"
             ).fetchall(), list(enumerate(chunk["text"] for chunk in chunks)))
 
     def test_technical_terms_and_unicode(self):
@@ -53,6 +53,37 @@ class FTSTests(unittest.TestCase):
         ):
             with self.subTest(term=term), self.assertNoLogs(fts.logger, level="WARNING"):
                 self.assertEqual(self.search(term), [position])
+
+    def test_first_chunk_has_searchable_global_id_zero(self):
+        self.build(["firstneedle", "unrelated"])
+        with closing(sqlite3.connect(self.path)) as connection:
+            self.assertEqual(connection.execute(
+                "SELECT chunks.id, chunks_fts.rowid FROM chunks "
+                "JOIN chunks_fts ON chunks.id = chunks_fts.rowid "
+                "WHERE chunks_fts MATCH ?", ("firstneedle",),
+            ).fetchall(), [(0, 0)])
+        result = self.search("firstneedle")
+        self.assertEqual(result, [0])
+        self.assertIs(type(result[0]), int)
+
+    def test_conflicting_legacy_index_is_ignored(self):
+        self.build(["needle", "unrelated"])
+        legacy_path = self.path.parent / "fts_index.db"
+        with closing(sqlite3.connect(legacy_path)) as connection, connection:
+            connection.execute("CREATE VIRTUAL TABLE chunks_fts USING fts5(text)")
+            connection.executemany(
+                "INSERT INTO chunks_fts(rowid, text) VALUES (?, ?)",
+                [(1, "legacyonly"), (2, "needle")],
+            )
+        with patch.object(fts, "RAG_DB_PATH", str(self.path)):
+            for search in (self.search, fts.search_fts):
+                self.assertEqual(search("needle"), [0])
+                self.assertEqual(search("legacyonly"), [])
+            self.path.unlink()
+            with self.assertLogs(fts.logger, level="WARNING"):
+                self.assertEqual(fts.search_fts("needle"), [])
+            self.assertFalse(self.path.exists())
+        self.assertTrue(legacy_path.is_file())
 
     def test_punctuation_and_fts_operators_are_safe(self):
         self.build(["needle", "unrelated"])
@@ -89,6 +120,7 @@ class FTSTests(unittest.TestCase):
         expected = self.search(["alpha", "beta"])
         self.assertEqual(self.search(["alpha", "beta", "alpha", "alpha alpha"]), expected)
         self.assertEqual(self.search(("alpha", "beta")), expected)
+        self.assertEqual(self.search(iter(["alpha", "beta"])), expected)
         self.assertEqual(len(expected), len(set(expected)))
 
     def test_blank_and_punctuation_only_inputs(self):
@@ -115,13 +147,6 @@ class FTSTests(unittest.TestCase):
         self.build([])
         with self.assertNoLogs(fts.logger, level="WARNING"):
             self.assertEqual(self.search("retainedtoken"), [])
-
-    def test_failed_build_raises_and_preserves_previous_index(self):
-        self.build(["oldtoken"])
-        with self.assertRaises(KeyError):
-            fts.build_fts_index([{"text": "newtoken"}, {}], self.path)
-        self.assertEqual(self.search("oldtoken"), [0])
-        self.assertEqual(self.search("newtoken"), [])
 
     def test_missing_index_logs_and_does_not_create_database(self):
         with self.assertLogs(fts.logger, level="WARNING") as logs:
@@ -150,22 +175,43 @@ class FTSTests(unittest.TestCase):
         with self.assertLogs(fts.logger, level="WARNING"):
             self.assertEqual(self.search("needle"), [])
 
+    def test_unavailable_database_returns_no_candidates(self):
+        self.build(["needle"])
+        with (
+            patch.object(fts.sqlite3, "connect", side_effect=OSError("database unavailable")),
+            self.assertLogs(fts.logger, level="WARNING") as logs,
+        ):
+            self.assertEqual(self.search("needle"), [])
+        self.assertIn("database unavailable", logs.output[0])
+
+    def test_runtime_connection_is_read_only(self):
+        self.build(["needle"])
+        with patch.object(fts.sqlite3, "connect", wraps=sqlite3.connect) as connect:
+            self.assertEqual(self.search("needle"), [0])
+        connect.assert_called_once_with(self.path.resolve().as_uri() + "?mode=ro", uri=True)
+
     def test_relative_configured_path_uses_current_working_directory(self):
         original_cwd = Path.cwd()
         with TemporaryDirectory() as directory:
             try:
                 os.chdir(directory)
-                with patch.object(fts, "FTS_INDEX_PATH", "relative_index.db"):
-                    fts.build_fts_index([{"text": "needle"}])
-                    self.assertTrue((Path(directory) / "relative_index.db").is_file())
+                with patch.object(fts, "RAG_DB_PATH", "relative_rag.db"):
+                    store.build_rag_db(
+                        [{"text": "needle", "source": "test.txt", "chunk_id": 0}],
+                        fts.RAG_DB_PATH,
+                    )
+                    self.assertTrue((Path(directory) / "relative_rag.db").is_file())
                     self.assertEqual(fts.search_fts("needle"), [0])
+                    self.assertEqual(fts.search_fts("needle", db_path="relative_rag.db"), [0])
             finally:
                 os.chdir(original_cwd)
 
     def test_configured_path_and_uri_special_characters(self):
-        path = self.path.parent / "index #1?.db"
-        with patch.object(fts, "FTS_INDEX_PATH", str(path)):
-            fts.build_fts_index([{"text": "needle"}])
+        path = self.path.parent / "rag #1?.db"
+        with patch.object(fts, "RAG_DB_PATH", str(path)):
+            store.build_rag_db(
+                [{"text": "needle", "source": "test.txt", "chunk_id": 0}], path
+            )
             self.assertEqual(fts.search_fts("needle"), [0])
 
 

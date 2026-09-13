@@ -244,15 +244,15 @@ class HybridQueryTests(unittest.TestCase):
         self.constructor.assert_not_called()
 
     def prepare_real_artifacts(self, *, corrupt_faiss=False):
-        from rag import fts
+        from rag import fts, store
 
         self.stored_chunks = [
             {"text": "unrelated background", "source": "unrelated.txt", "chunk_id": 7},
             {"text": "oldneedle recovery instructions", "source": "old.txt", "chunk_id": 8},
         ]
         self.chunks_path.write_bytes(pickle.dumps(self.stored_chunks))
-        self.fts_path = self.directory / "fts_index.db"
-        fts.build_fts_index(self.stored_chunks, index_path=self.fts_path)
+        self.rag_path = self.directory / "rag.db"
+        store.build_rag_db(self.stored_chunks, self.rag_path)
         if corrupt_faiss:
             self.index_path.write_bytes(b"corrupt FAISS data")
         else:
@@ -265,9 +265,9 @@ class HybridQueryTests(unittest.TestCase):
         self.model.encode.side_effect = lambda inputs: np.array([[0, 4]], dtype="float32")
         self.expand.return_value = ["oldneedle"]
         self.fts.side_effect = lambda inputs, limit: fts.search_fts(
-            inputs, limit=limit, index_path=self.fts_path
+            inputs, limit=limit, db_path=self.rag_path
         )
-        self.assertEqual(fts.search_fts("oldneedle", index_path=self.fts_path), [1])
+        self.assertEqual(fts.search_fts("oldneedle", db_path=self.rag_path), [1])
 
     def assert_fts_chunk(self, result):
         self.assertEqual(self.query.chunks, self.stored_chunks)
@@ -465,7 +465,7 @@ class HybridQueryTests(unittest.TestCase):
         self.constructor.assert_not_called()
 
     def test_successful_repair_reloads_generation_before_overlapping_searches(self):
-        from rag import fts
+        from rag import fts, store
 
         self.prepare_real_artifacts(corrupt_faiss=True)
         self.assertTrue(self.query._ensure_chunks_loaded())
@@ -490,7 +490,7 @@ class HybridQueryTests(unittest.TestCase):
             index = faiss.IndexFlatIP(2)
             index.add(np.array([[0, 1], [1, 0]], dtype="float32"))
             faiss.write_index(index, str(self.index_path))
-            fts.build_fts_index(new_chunks, index_path=self.fts_path)
+            store.build_rag_db(new_chunks, self.rag_path)
             repaired.set()
 
         def encode(inputs):
@@ -505,7 +505,7 @@ class HybridQueryTests(unittest.TestCase):
             self.assertEqual(self.query.chunks, new_chunks)
             rendezvous.wait()
             fts_finished.set()
-            return fts.search_fts(inputs, limit=limit, index_path=self.fts_path)
+            return fts.search_fts(inputs, limit=limit, db_path=self.rag_path)
 
         self.expand.side_effect = expand
         self.rebuild.side_effect = rebuild
@@ -522,9 +522,15 @@ class HybridQueryTests(unittest.TestCase):
         np.testing.assert_allclose(self.query.index.reconstruct_n(0, 2), [[0, 1], [1, 0]])
 
     def test_missing_chunks_are_recovered_by_existing_rebuild(self):
+        from rag import store
+
         self.prepare_real_artifacts()
         self.chunks_path.unlink()
-        self.rebuild.side_effect = lambda: self.chunks_path.write_bytes(pickle.dumps(self.stored_chunks))
+        def rebuild():
+            self.chunks_path.write_bytes(pickle.dumps(self.stored_chunks))
+            store.build_rag_db(self.stored_chunks, self.rag_path)
+
+        self.rebuild.side_effect = rebuild
         with self.assertLogs(self.query.logger, level="WARNING"):
             result = self.query.retrieve("oldneedle")
         self.rebuild.assert_called_once_with()
@@ -533,7 +539,7 @@ class HybridQueryTests(unittest.TestCase):
         self.assertEqual(result[0], self.stored_chunks[1])
 
     def test_post_rebuild_faiss_failure_uses_reloaded_chunks(self):
-        from rag import fts
+        from rag import store
 
         self.prepare_real_artifacts(corrupt_faiss=True)
         self.assertTrue(self.query._ensure_chunks_loaded())
@@ -541,7 +547,7 @@ class HybridQueryTests(unittest.TestCase):
 
         def rebuild():
             self.chunks_path.write_bytes(pickle.dumps(new_chunks))
-            fts.build_fts_index(new_chunks, index_path=self.fts_path)
+            store.build_rag_db(new_chunks, self.rag_path)
 
         self.rebuild.side_effect = rebuild
         with self.assertLogs(self.query.logger, level="WARNING") as logs:
